@@ -1,0 +1,176 @@
+import { NextRequest, NextResponse } from "next/server";
+import { FOODS } from "@/lib/foods-data";
+import { getAuth } from "@/lib/auth";
+
+// Always read env vars fresh — never use build-time cached values
+export const dynamic = "force-dynamic";
+
+// Comma-separated keys: GEMINI_API_KEYS=key1,key2,key3
+const API_KEYS: string[] = process.env.GEMINI_API_KEYS
+  ? process.env.GEMINI_API_KEYS.split(",")
+      .map((k) => k.trim())
+      .filter(Boolean)
+  : [];
+
+const GEMINI_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
+
+// Shuffle a copy of the foods array — Fisher-Yates — returns new array, never mutates original
+function shuffleFoods<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+// Build system instruction fresh each request with shuffled food order.
+// Shuffling forces Gemini to scan from a different starting point each call → natural rotation.
+function buildSystemInstruction(): string {
+  const foodsJson = JSON.stringify(shuffleFoods(FOODS));
+  return `Cậu là một thuật toán toán học xếp hình thực đơn siêu tốc dành cho người Việt.
+Nhiệm vụ: Dựa trên yêu cầu từ HLV (Protein/Fat/Carbs/Calo mục tiêu, số bữa), lựa chọn thực phẩm từ MẢNG DỮ LIỆU BÊN DƯỚI và thiết kế thực đơn theo đúng QUY TRÌNH 4 BƯỚC.
+
+MẢNG DỮ LIỆU THỰC PHẨM (526 món chuẩn Việt Nam — thứ tự xáo trộn mỗi lần gọi để tăng đa dạng):
+${foodsJson}
+
+══════════════════════════════════════════════
+QUY TRÌNH 4 BƯỚC BẮT BUỘC
+══════════════════════════════════════════════
+
+BƯỚC 1 — CHỌN NGUYÊN LIỆU NGẪU NHIÊN:
+• Mỗi lần tạo thực đơn, chủ động xáo trộn và chọn tổ hợp thực phẩm KHÁC NHAU từ mảng dữ liệu.
+• Đạm: luân phiên giữa cá các loại, thịt bò nạc, tôm, trứng, thịt heo nạc...
+• Tinh bột: luân phiên giữa cơm gạo lứt, cơm trắng, bún, phở, khoai lang, bánh mì nguyên cám...
+• Chất béo: lấy từ mỡ tự nhiên trong thực phẩm, dầu olive, các loại hạt có trong data.
+• Nếu có từ 3 bữa trở lên: Bữa 1 (sáng) ưu tiên bún, phở, xôi, bánh mì, bánh bao.
+• TUYỆT ĐỐI không lặp lại nguyên văn tổ hợp đã tạo lần trước.
+• KHÔNG sáng tác món ngoài mảng dữ liệu. Chỉ dùng đúng tên món có trong data.
+
+BƯỚC 2 — GIẢI PHƯƠNG TRÌNH KHỐI LƯỢNG:
+• Sau khi chọn xong món, tính chính xác số GRAM của từng thực phẩm.
+• Công thức: macro_thực_tế = macro_per_100g × (gram / 100)
+• Điều chỉnh gram tăng/giảm sao cho tổng Protein, Fat, Carbs cộng lại đạt 95%–100% mục tiêu HLV.
+• Ghi định lượng rõ trong trường "name": "Cơm lứt 200g + Cá lóc hấp 150g + Rau muống 100g"
+
+BƯỚC 3 — PHÂN BỔ CALO ĐỀU THEO BỮA:
+• Tổng calo ngày chia đều ra tất cả các bữa — mỗi bữa chiếm 30%–35% tổng calo.
+• Sai số calo tối đa cho phép: ±50 kcal giữa các bữa với nhau.
+• CẤM dồn calo vào một bữa duy nhất.
+
+BƯỚC 4 — VÒNG LẶP TỰ KIỂM TRA (Self-Check):
+• Trước khi xuất JSON, cộng tổng macro của tất cả bữa.
+• Nếu tổng Protein HOẶC Fat HOẶC Carbs lệch > 5% so với mục tiêu → BẮT BUỘC điều chỉnh lại gram, KHÔNG xuất phương án sai.
+• Nếu tổng Calo lệch > ±50 kcal → điều chỉnh lại khẩu phần.
+• Chỉ xuất JSON khi TẤT CẢ macro đạt 95%–100% mục tiêu.
+
+══════════════════════════════════════════════
+ĐỊNH DẠNG ĐẦU RA (BẮT BUỘC TUYỆT ĐỐI)
+══════════════════════════════════════════════
+Trả về CHỈ JSON hợp lệ, không markdown, không giải thích:
+[{"mealName":"Bữa 1 - Sáng (7:00)","name":"Tên món 150g + Tên món 2 200g","calories":500,"protein":35,"fat":15,"carbs":55}]`;
+}
+
+// HTTP status codes that are transient — skip to next key instead of failing hard
+function isRetryableStatus(status: number): boolean {
+  return [400, 429, 500, 503].includes(status);
+}
+
+async function callGemini(prompt: string): Promise<string> {
+  if (API_KEYS.length === 0) {
+    throw new Error(
+      "Chưa cấu hình GEMINI_API_KEYS trong .env.local (định dạng: key1,key2,...)"
+    );
+  }
+
+  let lastStatus = 0;
+
+  for (let i = 0; i < API_KEYS.length; i++) {
+    const key = API_KEYS[i];
+
+    let response: Response;
+    try {
+      response = await fetch(`${GEMINI_URL}?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: buildSystemInstruction() }],
+          },
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+          },
+        }),
+      });
+    } catch (networkErr) {
+      console.log(`[Gemini] Key #${i + 1} lỗi mạng, thử key tiếp theo:`, networkErr);
+      continue;
+    }
+
+    if (isRetryableStatus(response.status)) {
+      console.log(
+        `[Gemini] Key #${i + 1} trả về HTTP ${response.status}, thử key tiếp theo`
+      );
+      lastStatus = response.status;
+      continue;
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Gemini API lỗi HTTP ${response.status}: ${body}`);
+    }
+
+    const data = await response.json() as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) {
+      throw new Error("Gemini không trả về nội dung hợp lệ");
+    }
+
+    return text;
+  }
+
+  throw new Error(
+    `Tất cả ${API_KEYS.length} key đều không khả dụng (lỗi cuối: HTTP ${lastStatus}). Vui lòng thêm key mới hoặc thử lại sau.`
+  );
+}
+
+export async function POST(req: NextRequest) {
+  const auth = await getAuth();
+  if (!auth.ok) {
+    return NextResponse.json(
+      {
+        error: auth.kicked
+          ? "Tài khoản của bạn đang được đăng nhập ở một thiết bị khác!"
+          : "Chưa đăng nhập",
+        kicked: auth.kicked,
+      },
+      { status: 401 }
+    );
+  }
+
+  try {
+    const body = await req.json() as { prompt?: string };
+    const { prompt } = body;
+
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+      return NextResponse.json(
+        { error: "Thiếu hoặc sai định dạng tham số 'prompt'" },
+        { status: 400 }
+      );
+    }
+
+    const result = await callGemini(prompt.trim());
+    return NextResponse.json({ result });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Lỗi không xác định từ Gemini";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

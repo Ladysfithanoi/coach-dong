@@ -1,0 +1,1037 @@
+"use client";
+
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
+import type { NutritionResult } from "./DietForm";
+import { FOODS, type FoodItem } from "@/lib/foods-data";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AiMeal {
+  mealName: string;
+  name: string;
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+}
+
+interface ManualFood {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+}
+
+type Tab = "ai" | "manual";
+type MealCount = 2 | 3 | 4 | 5;
+
+interface IngredientRow {
+  id: string;
+  query: string;
+  food: FoodItem | null;
+  grams: number;
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function stripMarkdown(text: string): string {
+  return text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
+}
+
+function parseAiResponse(raw: string): AiMeal[] {
+  const cleaned = stripMarkdown(raw);
+  const parsed: unknown = JSON.parse(cleaned);
+  if (!Array.isArray(parsed)) throw new Error("AI trả về dữ liệu không đúng định dạng mảng");
+  return (parsed as Record<string, unknown>[]).map((item, i) => ({
+    mealName: String(item.mealName ?? `Bữa ${i + 1}`),
+    name: String(item.name ?? ""),
+    calories: Math.round(Number(item.calories ?? 0)),
+    protein: Math.round(Number(item.protein ?? 0)),
+    fat: Math.round(Number(item.fat ?? 0)),
+    carbs: Math.round(Number(item.carbs ?? 0)),
+  }));
+}
+
+// ─── Food search helpers ──────────────────────────────────────────────────────
+
+function newRow(): IngredientRow {
+  return { id: `${Date.now()}-${Math.random()}`, query: "", food: null, grams: 100 };
+}
+
+function computeRowMacros(food: FoodItem, grams: number) {
+  const r = grams / 100;
+  return {
+    calories: Math.round(food.calories * r),
+    protein: Math.round(food.protein * r),
+    fat: Math.round(food.fat * r),
+    carbs: Math.round(food.carbs * r),
+  };
+}
+
+function searchFoods(query: string): FoodItem[] {
+  if (!query.trim()) return [];
+  const q = query.toLowerCase().trim();
+  return FOODS.filter(f =>
+    f.name.toLowerCase().includes(q) ||
+    (f.nameEn ?? "").toLowerCase().includes(q)
+  )
+    .sort((a, b) => {
+      const aS = a.name.toLowerCase().startsWith(q) || (a.nameEn ?? "").toLowerCase().startsWith(q);
+      const bS = b.name.toLowerCase().startsWith(q) || (b.nameEn ?? "").toLowerCase().startsWith(q);
+      return aS === bS ? 0 : aS ? -1 : 1;
+    })
+    .slice(0, 8);
+}
+
+// ─── Auto-fill helpers ────────────────────────────────────────────────────────
+
+const suggestTemplates = [
+  {
+    method: "Thực đơn thâm hụt calo kiểm soát, ưu tiên tối ưu hóa tỷ lệ cơ nạc và đốt cháy mỡ thừa bền vững.",
+    notes: "👉 Ưu tiên các phương pháp chế biến nguyên bản: Luộc, hấp, áp chảo bằng dầu xịt ăn kiêng (Olive/Canola). Hạn chế tối đa các loại sốt ướp sẵn nhiều đường và muối.\n👉 Nên chuẩn bị trước (Prep đồ ăn) vào tối hôm trước hoặc sáng sớm để tránh việc đi làm bận rộn rồi ăn sai lịch.\n👉 Ăn chậm, nhai kỹ để cơ thể kịp phát tín hiệu no, giúp kiểm soát cơn thèm ăn tốt hơn trong giai đoạn thâm hụt.",
+  },
+  {
+    method: "Tái cấu trúc thói quen dinh dưỡng cá nhân, kích hoạt chế độ nỗ lực tối thiểu để đạt kết quả tối đa.",
+    notes: "👉 Tuyệt đối không bỏ bữa, đặc biệt là các bữa có hàm lượng Protein cao để bảo vệ khối lượng cơ nạc.\n👉 Cố gắng đi ngủ trước 23h. Thức khuya làm tăng hormone Cortisol (gây stress) và kích thích cảm giác thèm ăn vặt vào ban đêm.\n👉 Nếu cảm thấy quá đói giữa các hiệp ăn, hãy bổ sung thêm các loại rau xanh lá hoặc dưa chuột.",
+  },
+  {
+    method: "Lộ trình thiết kế may đo dựa trên lối sống thực tế, thích nghi không áp lực để chuyển giao tư duy làm chủ vóc dáng.",
+    notes: "👉 Thực đơn là cái khung, không phải cái lồng. Nếu lỡ ăn lệch một bữa do tiếp khách, hãy quay lại kỷ luật ngay vào bữa kế tiếp.\n👉 Lắng nghe cơ thể: Ghi chép lại cảm giác năng lượng sau mỗi ngày áp dụng để HLV điều chỉnh thực đơn kịp thời.\n👉 Đo lường kết quả dựa trên cả sự thay đổi của trang phục và năng lượng tập luyện, không nên quá ám ảnh bởi con số trên cân mỗi ngày.",
+  },
+];
+
+const GOAL_DESC: Record<string, string> = {
+  lose: "Thực đơn thâm hụt calo — Mục tiêu Giảm cân (thâm hụt 1% trọng lượng/tuần)",
+  fat_loss: "Thực đơn thâm hụt calo — Mục tiêu Giảm mỡ nâng cao (thâm hụt 0.5% trọng lượng/tuần)",
+  gain: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân (+500 kcal/ngày)",
+  maintain: "Thực đơn duy trì năng lượng — Mục tiêu Giữ vóc dáng",
+};
+
+const GOAL_LABEL_PDF: Record<string, string> = {
+  lose: "Giảm cân", fat_loss: "Giảm mỡ", gain: "Tăng cân", maintain: "Duy trì",
+};
+
+// ─── TrackingBar ──────────────────────────────────────────────────────────────
+
+function TrackingBar({ label, current, target, color }: { label: string; current: number; target: number; color: string }) {
+  const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+  const over = current > target;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+        <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "rgba(18,16,13,0.5)" }}>{label}</span>
+        <span style={{ fontSize: "0.75rem", color: over ? "#eb0915" : "rgba(18,16,13,0.38)" }}>
+          {over ? `+${Math.round(current - target)} vượt` : `còn ${Math.round(target - current)}`}
+        </span>
+      </div>
+      <div style={{ height: "6px", borderRadius: "99px", background: "rgba(18,16,13,0.08)" }}>
+        <div style={{ height: "100%", borderRadius: "99px", width: `${pct}%`, background: over ? "#eb0915" : color, transition: "width 0.35s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── AiMealCard ───────────────────────────────────────────────────────────────
+
+function AiMealCard({ meal }: { meal: AiMeal }) {
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(18,16,13,0.1)" }}>
+      <div className="px-4 py-2 flex items-center justify-between" style={{ background: "rgba(235,9,21,0.05)" }}>
+        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#eb0915" }}>{meal.mealName}</span>
+        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#12100d" }}>{meal.calories} kcal</span>
+      </div>
+      <div className="px-4 py-3 flex items-start justify-between gap-3">
+        <p style={{ fontSize: "0.875rem", color: "#12100d", lineHeight: 1.55, flex: 1 }}>{meal.name}</p>
+        <p className="flex-shrink-0 text-right" style={{ fontSize: "0.75rem", color: "rgba(18,16,13,0.45)", lineHeight: 1.8 }}>
+          P: {Math.round(meal.protein)}g<br />F: {Math.round(meal.fat)}g<br />C: {Math.round(meal.carbs)}g
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── PrintPreview (the full editable + printable PDF template) ────────────────
+
+function PrintPreview({
+  result, aiMeals, manualFoods, date, logoUrl, noticeMethod, noticeWater, noticeTips,
+}: {
+  result: NutritionResult;
+  aiMeals: AiMeal[] | null;
+  manualFoods: ManualFood[];
+  date: string;
+  logoUrl: string | null;
+  noticeMethod: string;
+  noticeWater: string;
+  noticeTips: string;
+}) {
+  const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "Arial, sans-serif", textAlign: "left" };
+  const thDark: React.CSSProperties = { ...th, background: "#12100d" };
+  const td: React.CSSProperties = { padding: "9px 13px", fontSize: "12px", borderBottom: "1px solid rgba(18,16,13,0.07)", color: "#12100d", fontFamily: "Arial, sans-serif" };
+  const tdRight: React.CSSProperties = { ...td, textAlign: "right" };
+  const tdCenter: React.CSSProperties = { ...td, textAlign: "center" };
+  const tdBold: React.CSSProperties = { ...td, fontWeight: 700 };
+
+  const aiGrand = aiMeals
+    ? aiMeals.reduce((a, m) => ({ cal: a.cal + m.calories, p: a.p + m.protein, f: a.f + m.fat, c: a.c + m.carbs }), { cal: 0, p: 0, f: 0, c: 0 })
+    : null;
+  const manualTotal = manualFoods.reduce((a, f) => ({ cal: a.cal + f.calories, p: a.p + f.protein, f: a.f + f.fat, c: a.c + f.carbs }), { cal: 0, p: 0, f: 0, c: 0 });
+  const hasNotice = noticeMethod || noticeWater || noticeTips;
+
+  return (
+    <div style={{ background: "#ffffff", fontFamily: "Arial, sans-serif", color: "#12100d" }}>
+
+      {/* ── Logo + date row ── */}
+      <div style={{ padding: "20px 40px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ minHeight: "60px", display: "flex", alignItems: "center" }}>
+          {logoUrl
+            ? <img src={logoUrl} alt="Logo" style={{ maxHeight: "60px", maxWidth: "200px", objectFit: "contain" }} />
+            : <span className="no-print" style={{ fontSize: "11px", color: "rgba(18,16,13,0.3)", fontStyle: "italic" }}>[Upload logo để hiển thị ở đây]</span>
+          }
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.4)", textTransform: "uppercase", letterSpacing: "0.09em" }}>Ngày tạo</div>
+          <div contentEditable suppressContentEditableWarning style={{ fontSize: "13px", fontWeight: 600, outline: "none" }}>{date}</div>
+        </div>
+      </div>
+
+      {/* ── Red header ── */}
+      <div style={{ background: "#eb0915", padding: "20px 40px 18px", marginTop: "16px" }}>
+        <div contentEditable suppressContentEditableWarning style={{ fontSize: "28px", fontWeight: 900, color: "#ffffff", letterSpacing: "-0.03em", lineHeight: 1, outline: "none" }}>
+          DIET PLAN
+        </div>
+        <div contentEditable suppressContentEditableWarning style={{ fontSize: "12px", color: "rgba(255,255,255,0.65)", marginTop: "5px", letterSpacing: "0.04em", outline: "none" }}>
+          Máy Tính Dinh Dưỡng Chuyên Sâu
+        </div>
+      </div>
+
+      {/* ── Client info ── */}
+      <div style={{ padding: "18px 40px", display: "flex", gap: "28px", flexWrap: "wrap", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
+        {[
+          { label: "Khách hàng", value: result.name, large: true },
+          { label: "Mục tiêu", value: GOAL_LABEL_PDF[result.weightGoal] ?? result.weightGoal },
+          { label: "Thông số", value: `${result.gender === "male" ? "Nam" : "Nữ"} · ${result.age}t · ${result.height}cm · ${result.weight}kg` },
+          { label: "DER (Calo/ngày)", value: `${result.der.toLocaleString("vi-VN")} kcal` },
+        ].map(item => (
+          <div key={item.label}>
+            <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>{item.label}</div>
+            <div contentEditable suppressContentEditableWarning style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none" }}>
+              {item.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Nutrition targets ── */}
+      <div style={{ padding: "14px 40px 16px" }}>
+        <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Mục tiêu dinh dưỡng hàng ngày</div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={th}>Chỉ số</th>
+              <th style={{ ...th, textAlign: "right" }}>Mục tiêu / ngày</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { label: "DER (Calo mục tiêu)", value: `${result.der.toLocaleString("vi-VN")} kcal` },
+              { label: "Protein", value: `${result.protein}g` },
+              { label: "Fat", value: `${result.fat}g` },
+              { label: "Carbs", value: `${result.carbs}g` },
+            ].map((row, i) => (
+              <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
+                <td style={{ ...tdRight, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{row.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── AI Meal table ── */}
+      {aiMeals && aiMeals.length > 0 && (
+        <div style={{ padding: "0 40px 16px" }}>
+          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Kế hoạch thực đơn</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, whiteSpace: "nowrap" }}>Bữa ăn</th>
+                <th style={thDark}>Thực đơn chi tiết</th>
+                <th style={{ ...thDark, textAlign: "center" }}>Calo</th>
+                <th style={{ ...thDark, textAlign: "center" }}>P(g)</th>
+                <th style={{ ...thDark, textAlign: "center" }}>F(g)</th>
+                <th style={{ ...thDark, textAlign: "center" }}>C(g)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {aiMeals.map((meal, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                  <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }} contentEditable suppressContentEditableWarning>{meal.mealName}</td>
+                  <td style={td} contentEditable suppressContentEditableWarning>{meal.name}</td>
+                  <td style={{ ...tdCenter, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{Math.round(meal.calories)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.protein)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.fat)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.carbs)}</td>
+                </tr>
+              ))}
+              {aiGrand && (
+                <tr style={{ background: "rgba(235,9,21,0.05)" }}>
+                  <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2} contentEditable suppressContentEditableWarning>Tổng cả ngày</td>
+                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.cal)}</td>
+                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.p)}</td>
+                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.f)}</td>
+                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.c)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Manual foods table ── */}
+      {manualFoods.length > 0 && (
+        <div style={{ padding: "0 40px 16px" }}>
+          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Thực đơn tự nhập</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={th}>Món ăn</th>
+                <th style={{ ...th, textAlign: "center" }}>Calo</th>
+                <th style={{ ...th, textAlign: "center" }}>P(g)</th>
+                <th style={{ ...th, textAlign: "center" }}>F(g)</th>
+                <th style={{ ...th, textAlign: "center" }}>C(g)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {manualFoods.map((food, i) => (
+                <tr key={food.id} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                  <td style={td} contentEditable suppressContentEditableWarning>{food.name}</td>
+                  <td style={{ ...tdCenter, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{Math.round(food.calories)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.protein)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.fat)}</td>
+                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.carbs)}</td>
+                </tr>
+              ))}
+              <tr style={{ background: "rgba(235,9,21,0.04)" }}>
+                <td style={{ ...tdBold, color: "#eb0915" }} contentEditable suppressContentEditableWarning>Tổng ngày</td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.cal)}</td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.p)}</td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.f)}</td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.c)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Notice section ── */}
+      {hasNotice && (
+        <div style={{ padding: "14px 40px 18px", borderTop: "1px solid rgba(18,16,13,0.08)" }}>
+          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "12px" }}>Hướng dẫn & Lưu ý</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {noticeMethod && (
+              <div style={{ background: "rgba(235,9,21,0.04)", borderLeft: "3px solid #eb0915", padding: "10px 14px", borderRadius: "0 6px 6px 0" }}>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>Phương pháp & Mục tiêu</div>
+                <div contentEditable suppressContentEditableWarning style={{ fontSize: "12px", color: "#12100d", lineHeight: 1.6, outline: "none" }}>{noticeMethod}</div>
+              </div>
+            )}
+            {noticeWater && (
+              <div style={{ background: "rgba(59,130,246,0.05)", borderLeft: "3px solid #3b82f6", padding: "10px 14px", borderRadius: "0 6px 6px 0" }}>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>Lượng nước uống</div>
+                <div contentEditable suppressContentEditableWarning style={{ fontSize: "12px", color: "#12100d", lineHeight: 1.6, outline: "none" }}>{noticeWater}</div>
+              </div>
+            )}
+            {noticeTips && (
+              <div style={{ background: "rgba(16,185,129,0.05)", borderLeft: "3px solid #10b981", padding: "10px 14px", borderRadius: "0 6px 6px 0" }}>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>Hướng dẫn chế biến & Lưu ý</div>
+                <div contentEditable suppressContentEditableWarning style={{ fontSize: "12px", color: "#12100d", lineHeight: 1.6, whiteSpace: "pre-wrap", outline: "none" }}>{noticeTips}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Footer ── */}
+      <div style={{ padding: "14px 40px", borderTop: "1px solid rgba(18,16,13,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span contentEditable suppressContentEditableWarning style={{ fontSize: "10px", color: "rgba(18,16,13,0.3)", fontStyle: "italic", outline: "none" }}>
+          Được tạo bởi Diet Plan · Máy Tính Dinh Dưỡng Chuyên Sâu
+        </span>
+        <span style={{ fontSize: "12px", fontWeight: 900, color: "#eb0915", letterSpacing: "-0.01em" }}>DIET PLAN</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── IngredientSearchRow ──────────────────────────────────────────────────────
+
+function IngredientSearchRow({
+  row, isActive, canRemove, onQueryChange, onSelect, onGramsChange, onRemove, onFocus, onBlur,
+}: {
+  row: IngredientRow; isActive: boolean; canRemove: boolean;
+  onQueryChange: (val: string) => void; onSelect: (food: FoodItem) => void;
+  onGramsChange: (g: number) => void; onRemove: () => void; onFocus: () => void; onBlur: () => void;
+}) {
+  const results = isActive && row.query ? searchFoods(row.query) : [];
+  const macros = row.food ? computeRowMacros(row.food, row.grams) : null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-1 min-w-0">
+          <input type="text" placeholder="Tìm nguyên liệu... (VD: cá lóc, gạo lứt)" value={row.query}
+            onChange={e => onQueryChange(e.target.value)} onFocus={onFocus} onBlur={onBlur}
+            className="dp-input w-full" autoComplete="off" />
+          {results.length > 0 && (
+            <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-xl overflow-hidden shadow-xl"
+              style={{ background: "#fff", border: "1px solid rgba(18,16,13,0.12)" }}>
+              {results.map(food => (
+                <button key={food.name} type="button" onMouseDown={() => onSelect(food)}
+                  className="w-full text-left px-3 py-2.5 transition-colors"
+                  style={{ borderBottom: "1px solid rgba(18,16,13,0.05)" }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(235,9,21,0.04)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "")}>
+                  <span className="text-sm font-semibold" style={{ color: "#12100d" }}>{food.name}</span>
+                  <span className="text-xs ml-2" style={{ color: "rgba(18,16,13,0.4)" }}>
+                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /100g
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <input type="number" value={row.grams} min={1}
+            onChange={e => onGramsChange(Math.max(1, parseInt(e.target.value) || 100))}
+            className="dp-input text-center" style={{ width: "68px" }} />
+          <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>g</span>
+        </div>
+        {canRemove && (
+          <button type="button" onClick={onRemove}
+            className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-lg"
+            style={{ background: "rgba(235,9,21,0.08)", color: "#eb0915" }} aria-label="Xoá nguyên liệu">
+            ×
+          </button>
+        )}
+      </div>
+      {macros && (
+        <div className="flex gap-3 pl-1 flex-wrap">
+          {([
+            { label: "Calo", value: `${macros.calories} kcal`, color: "#eb0915" },
+            { label: "P", value: `${macros.protein}g`, color: "#1d4ed8" },
+            { label: "F", value: `${macros.fat}g`, color: "#b45309" },
+            { label: "C", value: `${macros.carbs}g`, color: "#065f46" },
+          ] as const).map(item => (
+            <span key={item.label} className="text-xs font-semibold" style={{ color: item.color }}>
+              {item.label}: {item.value}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+
+function Spinner({ light = false }: { light?: boolean }) {
+  return (
+    <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke={light ? "rgba(255,255,255,0.3)" : "rgba(18,16,13,0.15)"} strokeWidth="3" />
+      <path d="M12 2a10 10 0 0 1 10 10" stroke={light ? "white" : "#12100d"} strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
+export default function MealPlanSection({
+  result, liveProtein, liveFat, liveCarbs, liveDer,
+}: {
+  result: NutritionResult; liveProtein: number; liveFat: number; liveCarbs: number; liveDer: number;
+}) {
+  const aiInFlight = useRef(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const [activeTab, setActiveTab] = useState<Tab>("ai");
+  const [mealCount, setMealCount] = useState<MealCount>(3);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(0);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiMeals, setAiMeals] = useState<AiMeal[] | null>(null);
+  const [manualFoods, setManualFoods] = useState<ManualFood[]>([]);
+  const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Notice block state
+  const [noticeMethod, setNoticeMethod] = useState(() => GOAL_DESC[result.weightGoal] ?? "");
+  const [noticeWater, setNoticeWater] = useState(() => {
+    const ml = Math.round(result.weight * 40);
+    return `Khuyến nghị uống tối thiểu ${ml.toLocaleString("vi-VN")}ml nước mỗi ngày (40ml/kg trọng lượng cơ thể)`;
+  });
+  const [noticeTips, setNoticeTips] = useState("");
+
+  // Preview / PDF state
+  const [showPreview, setShowPreview] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  const totals = manualFoods.reduce(
+    (a, f) => ({ calories: a.calories + f.calories, protein: a.protein + f.protein, fat: a.fat + f.fat, carbs: a.carbs + f.carbs }),
+    { calories: 0, protein: 0, fat: 0, carbs: 0 }
+  );
+
+  // ── AI meal generation ─────────────────────────────────────────────────────
+
+  const handleGenerateAI = useCallback(async () => {
+    if (aiInFlight.current) return;
+    aiInFlight.current = true;
+    setAiLoading(true);
+    setAiError(null);
+    setAiMeals(null);
+
+    // Per-meal targets — computed once so prompt numbers are consistent
+    const calPerMeal   = Math.round(liveDer      / mealCount);
+    const proPerMeal   = Math.round(liveProtein   / mealCount);
+    const fatPerMeal   = Math.round(liveFat       / mealCount);
+    const carbPerMeal  = Math.round(liveCarbs     / mealCount);
+    const calMin       = calPerMeal - 50;
+    const calMax       = calPerMeal + 50;
+    const proMin       = Math.round(liveProtein * 0.95);
+    const fatMin       = Math.round(liveFat     * 0.95);
+
+    const prompt = `Thiết kế thực đơn ${mealCount} bữa cho khách hàng theo QUY TRÌNH 4 BƯỚC.
+
+=== DỮ LIỆU ĐẦU VÀO ===
+Tổng Calo mục tiêu: ${liveDer} kcal
+Protein mục tiêu: ${liveProtein}g | Fat mục tiêu: ${liveFat}g | Carbs mục tiêu: ${liveCarbs}g
+Thực phẩm THÍCH: ${result.likes || "không có"}
+Thực phẩm GÉT/DỊ ỨNG: ${result.dislikes || "không có"}
+
+=== CHỈ TIÊU TỪNG BỮA (${mealCount} bữa — Bước 2 & 3) ===
+Calo mỗi bữa: ~${calPerMeal} kcal (dao động cho phép: ${calMin}–${calMax} kcal)
+Protein mỗi bữa: ~${proPerMeal}g | Fat: ~${fatPerMeal}g | Carbs: ~${carbPerMeal}g
+
+=== NGƯỠNG TỰ KIỂM TRA — Bước 4 (Self-Check) ===
+Tổng Protein cả ngày: ${proMin}g – ${liveProtein}g (95%–100%)
+Tổng Fat cả ngày: ${fatMin}g – ${liveFat}g (95%–100%)
+Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
+→ Nếu BẤT KỲ chỉ số nào lệch ngoài ngưỡng trên, điều chỉnh lại gram thực phẩm trước khi xuất JSON.`;
+
+    try {
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      if (res.status === 401) {
+        const errData = await res.json() as { kicked?: boolean };
+        window.location.replace(errData.kicked ? "/login?kicked=1" : "/login");
+        return;
+      }
+      const data: { result?: string; error?: string } = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Lỗi từ Gemini API");
+      if (!data.result) throw new Error("Gemini không trả về nội dung");
+      setAiMeals(parseAiResponse(data.result));
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "Đã xảy ra lỗi, vui lòng thử lại");
+    } finally {
+      setAiLoading(false);
+      aiInFlight.current = false;
+      setAiCooldown(5);
+      const t = setInterval(() => {
+        setAiCooldown(s => { if (s <= 1) { clearInterval(t); return 0; } return s - 1; });
+      }, 1000);
+    }
+  }, [result, mealCount, liveDer, liveProtein, liveFat, liveCarbs]);
+
+  // ── Random suggest ────────────────────────────────────────────────────────
+
+  function handleSuggestRandom() {
+    const tpl = suggestTemplates[Math.floor(Math.random() * suggestTemplates.length)];
+    setNoticeMethod(tpl.method);
+    setNoticeTips(tpl.notes);
+  }
+
+  // ── Manual food ────────────────────────────────────────────────────────────
+
+  function handleConfirmMeal() {
+    const filled = rows.filter((r): r is IngredientRow & { food: FoodItem } => r.food !== null);
+    if (filled.length === 0) return;
+    const total = filled.reduce(
+      (acc, row) => {
+        const m = computeRowMacros(row.food, row.grams);
+        return { calories: acc.calories + m.calories, protein: acc.protein + m.protein, fat: acc.fat + m.fat, carbs: acc.carbs + m.carbs };
+      },
+      { calories: 0, protein: 0, fat: 0, carbs: 0 }
+    );
+    const mealName = "Bữa thủ công: " + filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
+    setManualFoods(prev => [...prev, {
+      id: `${Date.now()}-${Math.random()}`,
+      name: mealName,
+      calories: Math.round(total.calories),
+      protein: Math.round(total.protein),
+      fat: Math.round(total.fat),
+      carbs: Math.round(total.carbs),
+    }]);
+    setRows([newRow()]);
+    setActiveDropdown(null);
+  }
+
+  // ── Logo upload ────────────────────────────────────────────────────────────
+
+  function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoUrl(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  const hasMealData = (aiMeals && aiMeals.length > 0) || manualFoods.length > 0;
+  const today = new Date().toLocaleDateString("vi-VN");
+
+  return (
+    <div id="meal-plan-section" className="mt-6 space-y-4">
+
+      {/* ── Tab container ── */}
+      <div className="bg-white rounded-2xl shadow-sm" style={{ border: "1px solid rgba(18,16,13,0.1)" }}>
+        {/* Tab bar */}
+        <div className="flex" style={{ borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
+          {(["ai", "manual"] as Tab[]).map(tab => (
+            <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+              className="flex-1 py-3.5 text-sm font-semibold transition-all"
+              style={{
+                borderBottom: activeTab === tab ? "2px solid #eb0915" : "2px solid transparent",
+                color: activeTab === tab ? "#eb0915" : "rgba(18,16,13,0.45)",
+                background: "transparent",
+              }}>
+              {tab === "ai" ? "✨ AI Thực đơn" : "✏️ Tự nhập tay"}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-6">
+          {/* ════ AI Tab ════ */}
+          {activeTab === "ai" && (
+            <div className="space-y-5">
+              <div>
+                <p className="dp-label">Số bữa ăn trong ngày</p>
+                <div className="grid grid-cols-4 gap-2 mt-1">
+                  {([2, 3, 4, 5] as MealCount[]).map(n => (
+                    <button key={n} type="button" onClick={() => setMealCount(n)}
+                      className="py-2.5 rounded-xl text-sm font-bold transition-all"
+                      style={{
+                        border: mealCount === n ? "1px solid #eb0915" : "1px solid rgba(18,16,13,0.15)",
+                        background: mealCount === n ? "#eb0915" : "#ffffff",
+                        color: mealCount === n ? "#ffffff" : "#12100d",
+                      }}>
+                      {n} bữa
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {(() => {
+                const blocked = aiLoading || aiCooldown > 0;
+                return (
+                  <button type="button" onClick={handleGenerateAI} disabled={blocked}
+                    className="w-full py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                    style={{ background: blocked ? "rgba(235,9,21,0.55)" : "#eb0915", color: "#ffffff", cursor: blocked ? "not-allowed" : "pointer", pointerEvents: blocked ? "none" : "auto" }}>
+                    {aiLoading ? <><Spinner light /> AI đang phân tích...</> : aiCooldown > 0 ? `Chờ ${aiCooldown}s...` : "✨ Gợi ý bằng AI"}
+                  </button>
+                );
+              })()}
+
+              {aiError && (
+                <div className="rounded-xl px-4 py-3 text-sm flex items-start gap-2"
+                  style={{ background: "rgba(235,9,21,0.06)", border: "1px solid rgba(235,9,21,0.2)", color: "#eb0915" }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 flex-shrink-0">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  {aiError}
+                </div>
+              )}
+
+              {aiMeals && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Thực đơn gợi ý</p>
+                  {aiMeals.map((meal, i) => <AiMealCard key={i} meal={meal} />)}
+                  {(() => {
+                    const gt = aiMeals.reduce((a, m) => ({ cal: a.cal + m.calories, p: a.p + m.protein, f: a.f + m.fat, c: a.c + m.carbs }), { cal: 0, p: 0, f: 0, c: 0 });
+                    return (
+                      <div className="rounded-xl p-4" style={{ background: "rgba(18,16,13,0.03)", border: "1px solid rgba(18,16,13,0.08)" }}>
+                        <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "rgba(18,16,13,0.35)" }}>Tổng cả ngày</p>
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+                          {[
+                            { label: "Calo", value: gt.cal, unit: "kcal", color: "#eb0915" },
+                            { label: "Protein", value: Math.round(gt.p), unit: "g", color: "#1d4ed8" },
+                            { label: "Fat", value: Math.round(gt.f), unit: "g", color: "#b45309" },
+                            { label: "Carbs", value: Math.round(gt.c), unit: "g", color: "#065f46" },
+                          ].map(item => (
+                            <div key={item.label} className="text-center rounded-lg py-2.5 px-1" style={{ background: "#ffffff", border: "1px solid rgba(18,16,13,0.07)" }}>
+                              <p className="text-xs" style={{ color: "rgba(18,16,13,0.4)" }}>{item.label}</p>
+                              <p className="text-lg md:text-xl font-bold mt-0.5" style={{ color: item.color }}>
+                                {item.value}<span className="text-xs md:text-sm font-semibold ml-0.5">{item.unit}</span>
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ════ Manual Tab ════ */}
+          {activeTab === "manual" && (
+            <div className="space-y-5">
+              <div className="rounded-xl p-4 space-y-3.5" style={{ background: "rgba(18,16,13,0.02)", border: "1px solid rgba(18,16,13,0.08)" }}>
+                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Tracking Board</p>
+                <TrackingBar label={`Calo · ${totals.calories} / ${liveDer} kcal`} current={totals.calories} target={liveDer} color="#eb0915" />
+                <TrackingBar label={`Protein · ${Math.round(totals.protein)} / ${liveProtein}g`} current={totals.protein} target={liveProtein} color="#1d4ed8" />
+                <TrackingBar label={`Fat · ${Math.round(totals.fat)} / ${liveFat}g`} current={totals.fat} target={liveFat} color="#b45309" />
+                <TrackingBar label={`Carbs · ${Math.round(totals.carbs)} / ${liveCarbs}g`} current={totals.carbs} target={liveCarbs} color="#065f46" />
+              </div>
+
+              <div className="space-y-4">
+                <p className="dp-label">Ghép bữa ăn từ nguyên liệu</p>
+                <div className="space-y-4">
+                  {rows.map(row => (
+                    <IngredientSearchRow key={row.id} row={row} isActive={activeDropdown === row.id} canRemove={rows.length > 1}
+                      onQueryChange={val => { setRows(prev => prev.map(r => r.id === row.id ? { ...r, query: val, food: null } : r)); setActiveDropdown(row.id); }}
+                      onSelect={food => { setRows(prev => prev.map(r => r.id === row.id ? { ...r, food, query: food.name } : r)); setActiveDropdown(null); }}
+                      onGramsChange={g => setRows(prev => prev.map(r => r.id === row.id ? { ...r, grams: g } : r))}
+                      onRemove={() => setRows(prev => prev.filter(r => r.id !== row.id))}
+                      onFocus={() => setActiveDropdown(row.id)}
+                      onBlur={() => setTimeout(() => setActiveDropdown(prev => prev === row.id ? null : prev), 150)}
+                    />
+                  ))}
+                </div>
+
+                {rows.length < 5 && (
+                  <button type="button" onClick={() => setRows(prev => [...prev, newRow()])}
+                    className="text-sm font-semibold" style={{ color: "#eb0915" }}>
+                    + Thêm nguyên liệu ({rows.length}/5)
+                  </button>
+                )}
+
+                {(() => {
+                  const filled = rows.filter((r): r is IngredientRow & { food: FoodItem } => r.food !== null);
+                  if (filled.length === 0) return null;
+                  const total = filled.reduce((acc, r) => { const m = computeRowMacros(r.food, r.grams); return { calories: acc.calories + m.calories, protein: acc.protein + m.protein, fat: acc.fat + m.fat, carbs: acc.carbs + m.carbs }; }, { calories: 0, protein: 0, fat: 0, carbs: 0 });
+                  return (
+                    <div className="rounded-xl p-3" style={{ background: "rgba(18,16,13,0.03)", border: "1px solid rgba(18,16,13,0.08)" }}>
+                      <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(18,16,13,0.35)" }}>Tổng bữa · {filled.length} nguyên liệu</p>
+                      <div className="flex gap-4 flex-wrap">
+                        {[{ label: "Calo", value: `${Math.round(total.calories)} kcal`, color: "#eb0915" }, { label: "Protein", value: `${Math.round(total.protein)}g`, color: "#1d4ed8" }, { label: "Fat", value: `${Math.round(total.fat)}g`, color: "#b45309" }, { label: "Carbs", value: `${Math.round(total.carbs)}g`, color: "#065f46" }].map(item => (
+                          <div key={item.label}>
+                            <p className="text-xs" style={{ color: "rgba(18,16,13,0.4)" }}>{item.label}</p>
+                            <p className="text-sm font-bold" style={{ color: item.color }}>{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <button type="button" onClick={handleConfirmMeal} disabled={rows.every(r => r.food === null)}
+                  className="w-full py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                  style={{ background: rows.some(r => r.food !== null) ? "#12100d" : "rgba(18,16,13,0.3)", color: "#ffffff", cursor: rows.some(r => r.food !== null) ? "pointer" : "not-allowed" }}>
+                  ✓ Xác nhận gộp bữa
+                </button>
+              </div>
+
+              {manualFoods.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Danh sách đã nhập ({manualFoods.length} món)</p>
+                  {manualFoods.map(food => (
+                    <div key={food.id} className="flex items-center gap-3 rounded-xl px-4 py-3"
+                      style={{ background: "rgba(18,16,13,0.025)", border: "1px solid rgba(18,16,13,0.07)" }}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "#12100d" }}>{food.name}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "rgba(18,16,13,0.4)" }}>
+                          {Math.round(food.calories)} kcal &nbsp;·&nbsp; P:{Math.round(food.protein)}g F:{Math.round(food.fat)}g C:{Math.round(food.carbs)}g
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => setManualFoods(prev => prev.filter(f => f.id !== food.id))}
+                        className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-base font-bold"
+                        style={{ background: "rgba(235,9,21,0.08)", color: "#eb0915" }} aria-label="Xoá">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Notice & Instructions block ── */}
+      {hasMealData && (
+        <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4" style={{ border: "1px solid rgba(18,16,13,0.1)" }}>
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>
+            Hướng dẫn & Lưu ý Thực đơn
+          </p>
+
+          {/* Phương pháp & Mục tiêu */}
+          <div>
+            <label className="dp-label">Phương pháp & Mục tiêu</label>
+            <textarea
+              rows={2}
+              value={noticeMethod}
+              onChange={e => setNoticeMethod(e.target.value)}
+              placeholder="Ví dụ: Thực đơn thâm hụt calo — Mục tiêu Giảm mỡ nâng cao"
+              className="dp-input resize-none"
+              style={{ lineHeight: 1.6 }}
+            />
+          </div>
+
+          {/* Lượng nước */}
+          <div>
+            <label className="dp-label">
+              Lượng nước uống khuyến nghị
+              <span className="ml-1.5 text-xs font-normal" style={{ color: "rgba(18,16,13,0.35)" }}>
+                (tự động: {result.weight}kg × 40ml = {Math.round(result.weight * 40).toLocaleString("vi-VN")}ml)
+              </span>
+            </label>
+            <textarea
+              rows={2}
+              value={noticeWater}
+              onChange={e => setNoticeWater(e.target.value)}
+              className="dp-input resize-none"
+              style={{ lineHeight: 1.6 }}
+            />
+          </div>
+
+          {/* Hướng dẫn chế biến */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="dp-label mb-0">Hướng dẫn chế biến & Lưu ý</label>
+              <button
+                type="button"
+                onClick={handleSuggestRandom}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
+                style={{
+                  background: "rgba(235,9,21,0.08)",
+                  color: "#eb0915",
+                  border: "1px solid rgba(235,9,21,0.2)",
+                  cursor: "pointer",
+                }}
+              >
+                ✨ Gợi ý tự động
+              </button>
+            </div>
+            <textarea
+              rows={5}
+              value={noticeTips}
+              onChange={e => setNoticeTips(e.target.value)}
+              placeholder="PT tự điền mẹo nấu ăn, ăn nhạt, hạn chế dầu mỡ... hoặc bấm Gợi ý bởi AI"
+              className="dp-input resize-none"
+              style={{ lineHeight: 1.6 }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Preview / PDF button ── */}
+      {hasMealData && (
+        <button
+          type="button"
+          onClick={() => setShowPreview(true)}
+          className="w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
+          style={{ background: "#12100d", color: "#ffffff" }}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+          </svg>
+          Xem trước & Thiết kế file PDF
+        </button>
+      )}
+
+      {/* ── Preview Overlay (portal → direct child of body, fixes print blank-page bug) ── */}
+      {showPreview && createPortal(
+        <div id="pdf-preview-root" className="fixed inset-0 z-50 bg-gray-100 overflow-y-auto">
+
+          {/* Controls bar — hidden on print */}
+          <div
+            className="no-print sticky top-0 z-10 flex flex-wrap items-center gap-3 px-4 py-3 shadow-md"
+            style={{ background: "#12100d" }}
+          >
+            {/* Logo upload */}
+            <div className="flex items-center gap-2">
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                onChange={handleLogoUpload}
+                className="hidden"
+                id="logo-upload-input"
+              />
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-all"
+                style={{ background: logoUrl ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.1)", color: logoUrl ? "#10b981" : "rgba(255,255,255,0.8)", border: `1px solid ${logoUrl ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.15)"}` }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                </svg>
+                {logoUrl ? "Đổi logo" : "Tải lên Logo"}
+              </button>
+              {logoUrl && (
+                <button type="button" onClick={() => setLogoUrl(null)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold"
+                  style={{ background: "rgba(235,9,21,0.2)", color: "#eb0915" }}>
+                  ×
+                </button>
+              )}
+            </div>
+
+            <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "20px" }}>|</span>
+
+            <span className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+              Click vào bất kỳ văn bản nào để chỉnh sửa trực tiếp
+            </span>
+
+            <div className="ml-auto flex items-center gap-2">
+              {/* Print / PDF */}
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all"
+                style={{ background: "#eb0915", color: "#ffffff" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                  <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+                In / Xuất PDF
+              </button>
+
+              {/* Close */}
+              <button
+                type="button"
+                onClick={() => setShowPreview(false)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
+                style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.12)" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+                Đóng
+              </button>
+            </div>
+          </div>
+
+          {/* A4 print area */}
+          <div className="py-6 px-4 flex justify-center">
+            <div
+              id="pdf-print-area"
+              className="w-full bg-white shadow-2xl"
+              style={{ maxWidth: "794px", minHeight: "1123px" }}
+            >
+              <PrintPreview
+                result={result}
+                aiMeals={aiMeals}
+                manualFoods={manualFoods}
+                date={today}
+                logoUrl={logoUrl}
+                noticeMethod={noticeMethod}
+                noticeWater={noticeWater}
+                noticeTips={noticeTips}
+              />
+            </div>
+          </div>
+
+          {/* Print CSS */}
+          <style>{`
+            @media print {
+              /* ── Kích thước trang A4, margin 8mm ── */
+              @page {
+                size: A4 portrait;
+                margin: 8mm;
+              }
+
+              /* ── Bắt buộc in màu nền (giữ màu đỏ header) ── */
+              *, *::before, *::after {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+
+              /* ── Ẩn toàn bộ body content trừ overlay (overlay là direct child của body nhờ portal) ── */
+              body > *:not(#pdf-preview-root) { display: none !important; }
+
+              /* ── html/body không chiếm chiều cao thừa ── */
+              html, body {
+                height: auto !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+              }
+
+              /* ── Xóa controls bar khỏi layout ── */
+              .no-print { display: none !important; }
+
+              /* ── Đặt overlay ở góc trên cùng trang, không fixed, không clip ── */
+              #pdf-preview-root {
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                overflow: visible !important;
+                background: white !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+
+              /* ── Wrapper: flex-center để #pdf-print-area nằm chính giữa trang ── */
+              #pdf-preview-root > div:not(.no-print) {
+                padding: 0 !important;
+                margin: 0 !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: flex-start !important;
+              }
+
+              /* ── Scale nội dung xuống ~82% để vừa A4 với 8mm margin, căn giữa ── */
+              #pdf-print-area {
+                position: static !important;
+                box-shadow: none !important;
+                width: 794px !important;
+                max-width: unset !important;
+                min-height: unset !important;
+                zoom: 0.82 !important;
+                margin: 0 auto !important;
+              }
+
+              /* ── Ngăn ngắt trang giữa bảng biểu và khối notice ── */
+              table {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+              }
+              #pdf-print-area > div > div {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+              }
+
+              /* ── Xoá viền và outline của contenteditable ── */
+              [contenteditable] {
+                outline: none !important;
+                border: none !important;
+              }
+            }
+          `}</style>
+        </div>,
+        document.body
+      )}
+
+    </div>
+  );
+}
