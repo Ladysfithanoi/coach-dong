@@ -541,12 +541,12 @@ export default function MealPlanSection({
     setAiMeals(null);
 
     // Effective calorie/macro for the selected cycling day (or base DER if cycling disabled)
+    // Protein & Fat are LOCKED; only Carbs adjusts as the lever (calcDayMacros logic in DietForm)
     const cyclingDay = cyclingSchedule?.enabled ? cyclingSchedule.days[cyclingDayIdx] : null;
-    const effectiveDer = cyclingDay ? cyclingDay.kcal : liveDer;
-    const calRatio = liveDer > 0 ? effectiveDer / liveDer : 1;
-    const effectiveProtein = Math.round(liveProtein * calRatio);
-    const effectiveFat     = Math.round(liveFat     * calRatio);
-    const effectiveCarbs   = Math.round(liveCarbs   * calRatio);
+    const effectiveDer     = cyclingDay ? cyclingDay.kcal    : liveDer;
+    const effectiveProtein = cyclingDay ? cyclingDay.protein : liveProtein;
+    const effectiveFat     = cyclingDay ? cyclingDay.fat     : liveFat;
+    const effectiveCarbs   = cyclingDay ? cyclingDay.carbs   : liveCarbs;
 
     // Per-meal targets
     const calPerMeal  = Math.round(effectiveDer     / mealCount);
@@ -562,10 +562,14 @@ export default function MealPlanSection({
       ? `
 === CALORIE CYCLING — CHẾ ĐỘ ĂN LINH HOẠT 7 NGÀY ===
 ⚠️ LỆNH BẮT BUỘC: Thực đơn hôm nay là cho ${cyclingDay.name} (${cyclingDay.isHigh ? "Ngày HIGH Calo" : "Ngày LOW Calo"}).
-Hạn mức ngày này: ${effectiveDer.toLocaleString("vi-VN")} kcal — KHÔNG được dùng mức DER chung cho tất cả các ngày.
+Hạn mức ngày này: ${effectiveDer.toLocaleString("vi-VN")} kcal
+Macro CHÍNH XÁC cho ngày này (KHÔNG được tự ý điều chỉnh): P:${effectiveProtein}g | F:${effectiveFat}g | C:${effectiveCarbs}g
 
-Lịch Calorie Cycling cả tuần (tham khảo):
-${cyclingSchedule.days.map(d => `• ${d.name}: ${d.kcal.toLocaleString("vi-VN")} kcal (${d.isHigh ? "HIGH" : "LOW"})`).join("\n")}
+Nguyên tắc: Protein & Fat được KHÓA CỨNG cố định. Chỉ có Carbs thay đổi theo từng ngày.
+Tuyệt đối KHÔNG chia đều macro theo tỷ lệ — phải dùng đúng bộ số trên.
+
+Lịch Calorie Cycling cả tuần (bối cảnh đầy đủ):
+${cyclingSchedule.days.map(d => `• ${d.name}: ${d.kcal.toLocaleString("vi-VN")} kcal (${d.isHigh ? "HIGH" : "LOW"}) — P:${d.protein}g F:${d.fat}g C:${d.carbs}g`).join("\n")}
 Trung bình tuần: ${cyclingSchedule.weeklyAvg.toLocaleString("vi-VN")} kcal/ngày`
       : "";
 

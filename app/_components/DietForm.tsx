@@ -58,7 +58,9 @@ export interface CyclingSchedule {
   lowCalKcal: number;
   highCalPercent: number;
   lowCalPercent: number;
-  days: { name: string; kcal: number; isHigh: boolean }[];
+  baseProtein: number;
+  baseFat: number;
+  days: { name: string; kcal: number; isHigh: boolean; protein: number; fat: number; carbs: number }[];
   weeklyAvg: number;
 }
 
@@ -135,6 +137,26 @@ function calcMacros(
   const fat = 50;
   const carbs = Math.max(0, (der - protein * 4 - fat * 9) / 4);
   return { protein, fat, carbs };
+}
+
+// Calorie Cycling: locks protein & fat, uses carbs as the lever.
+// Falls back to trimming fat then protein only when calories are extreme.
+function calcDayMacros(
+  dayKcal: number,
+  baseProtein: number,
+  baseFat: number
+): { protein: number; fat: number; carbs: number } {
+  const afterProteinFat = dayKcal - baseProtein * 4 - baseFat * 9;
+  if (afterProteinFat >= 0) {
+    return { protein: baseProtein, fat: baseFat, carbs: Math.round(afterProteinFat / 4) };
+  }
+  // Carbs exhausted → trim fat
+  const afterProtein = dayKcal - baseProtein * 4;
+  if (afterProtein >= 0) {
+    return { protein: baseProtein, fat: Math.round(afterProtein / 9), carbs: 0 };
+  }
+  // Fat exhausted too → trim protein last resort
+  return { protein: Math.max(0, Math.round(dayKcal / 4)), fat: 0, carbs: 0 };
 }
 
 function computeRoadmap(
@@ -584,11 +606,13 @@ export default function DietForm({ userName }: { userName: string }) {
     lowCalKcal,
     highCalPercent,
     lowCalPercent: lowCalPct,
-    days: DAY_FULL.map((name, i) => ({
-      name,
-      kcal: dayCalories[i],
-      isHigh: selectedHighDays.includes(i),
-    })),
+    baseProtein: macroP,
+    baseFat: macroF,
+    days: DAY_FULL.map((name, i) => {
+      const kcal = dayCalories[i];
+      const { protein, fat, carbs } = calcDayMacros(kcal, macroP, macroF);
+      return { name, kcal, isHigh: selectedHighDays.includes(i), protein, fat, carbs };
+    }),
     weeklyAvg: Math.round(dayCalories.reduce((a, b) => a + b, 0) / 7),
   } : null;
 
@@ -1406,10 +1430,12 @@ export default function DietForm({ userName }: { userName: string }) {
                 const CHART_H = 104;
                 const maxKcal = Math.max(highCalKcal, customDer, lowCalKcal, 1) * 1.08;
                 const derLineY = Math.round((customDer / maxKcal) * CHART_H);
+                // Per-day macros using carbs-as-lever algorithm
+                const dayMacros = dayCalories.map(kcal => calcDayMacros(kcal, macroP, macroF));
                 return (
                   <div>
                     <p className="text-xs mb-2" style={{ color: "rgba(18,16,13,0.4)" }}>
-                      Click vào cột để chọn / bỏ ngày High Calo
+                      Click vào cột để chọn / bỏ ngày High Calo · Hover để xem Macro
                     </p>
 
                     {/* Kcal + % labels row */}
@@ -1440,9 +1466,10 @@ export default function DietForm({ userName }: { userName: string }) {
                       {dayCalories.map((kcal, i) => {
                         const isHigh = selectedHighDays.includes(i);
                         const barH = Math.max(6, Math.round((kcal / maxKcal) * CHART_H));
+                        const { protein, fat, carbs } = dayMacros[i];
                         return (
                           <button key={i} type="button" onClick={() => toggleCyclingDay(i)}
-                            title={`${DAY_FULL[i]}: ${kcal.toLocaleString("vi-VN")} kcal — Click để ${isHigh ? "bỏ High" : "chọn High"}`}
+                            title={`${DAY_FULL[i]} (${isHigh ? "HIGH" : "LOW"})\n${kcal.toLocaleString("vi-VN")} kcal\nP: ${protein}g | F: ${fat}g | C: ${carbs}g\nClick để ${isHigh ? "bỏ High" : "đặt High"}`}
                             style={{
                               flex: 1, height: `${barH}px`,
                               background: isHigh
@@ -1466,6 +1493,28 @@ export default function DietForm({ userName }: { userName: string }) {
                           {d}
                         </div>
                       ))}
+                    </div>
+
+                    {/* Carbs per day — the lever */}
+                    <div style={{ display: "flex", gap: "4px", marginTop: "2px" }}>
+                      {dayMacros.map((m, i) => {
+                        const isHigh = selectedHighDays.includes(i);
+                        return (
+                          <div key={i} style={{ flex: 1, textAlign: "center", fontSize: "8px", color: isHigh ? "rgba(235,9,21,0.55)" : "rgba(59,130,246,0.55)" }}>
+                            C:{m.carbs}g
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Base macro lock indicator */}
+                    <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg"
+                      style={{ background: "rgba(18,16,13,0.03)", border: "1px solid rgba(18,16,13,0.06)" }}>
+                      <span className="text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>Mốc cố định 7 ngày:</span>
+                      <span className="text-xs font-bold" style={{ color: "#1d4ed8" }}>P: {macroP}g</span>
+                      <span className="text-xs font-bold" style={{ color: "#b45309" }}>F: {macroF}g</span>
+                      <span className="text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>·</span>
+                      <span className="text-xs font-semibold" style={{ color: "#065f46" }}>Carbs = đòn bẩy điều chỉnh</span>
                     </div>
                   </div>
                 );
