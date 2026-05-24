@@ -1308,7 +1308,7 @@ export default function DietForm({ userName }: { userName: string }) {
             </div>
 
             {/* ── Calorie Cycling ── */}
-            <div className="mt-1 pt-4" style={{ borderTop: "1px solid rgba(18,16,13,0.08)" }}>
+            <div className="mt-1 pt-4 mb-6 print:mb-5" style={{ borderTop: "1px solid rgba(18,16,13,0.08)" }}>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold uppercase tracking-widest"
                   style={{ color: "rgba(18,16,13,0.35)" }}>
@@ -1511,7 +1511,7 @@ export default function DietForm({ userName }: { userName: string }) {
                     </div>
 
                     {/* Base macro lock indicator */}
-                    <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg"
+                    <div className="flex items-center gap-2 mt-4 px-4 py-2.5 rounded-lg"
                       style={{ background: "rgba(18,16,13,0.03)", border: "1px solid rgba(18,16,13,0.06)" }}>
                       <span className="text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>Mốc cố định 7 ngày:</span>
                       <span className="text-xs font-bold" style={{ color: "#1d4ed8" }}>P: {macroP}g</span>
@@ -1526,7 +1526,7 @@ export default function DietForm({ userName }: { userName: string }) {
 
             {liveRoadmap ? (
               <div
-                className="rounded-xl p-4 shadow-sm"
+                className="rounded-xl p-4 shadow-sm mt-5 print:mt-4"
                 style={{ background: "#ffffff", border: "1px solid rgba(18,16,13,0.1)" }}
               >
                 <p
