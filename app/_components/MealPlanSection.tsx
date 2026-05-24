@@ -156,13 +156,14 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 function PrintPreview({
-  result, aiMeals, manualFoods, date, logoUrl, noticeMethod, noticeWater, noticeTips,
+  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips,
 }: {
   result: NutritionResult;
   aiMeals: AiMeal[] | null;
   manualFoods: ManualFood[];
   date: string;
   logoUrl: string | null;
+  imageSize: number;
   noticeMethod: string;
   noticeWater: string;
   noticeTips: string;
@@ -187,7 +188,7 @@ function PrintPreview({
       <div style={{ padding: "20px 40px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ minHeight: "60px", display: "flex", alignItems: "center" }}>
           {logoUrl
-            ? <img src={logoUrl} alt="Logo" style={{ maxHeight: "60px", maxWidth: "200px", objectFit: "contain" }} />
+            ? <img src={logoUrl} alt="Logo" style={{ width: `${imageSize}px`, height: "auto", objectFit: "contain" }} />
             : <span className="no-print" style={{ fontSize: "11px", color: "rgba(18,16,13,0.3)", fontStyle: "italic" }}>[Upload logo để hiển thị ở đây]</span>
           }
         </div>
@@ -475,6 +476,7 @@ export default function MealPlanSection({
   // Preview / PDF state
   const [showPreview, setShowPreview] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [imageSize, setImageSize] = useState(150);
 
   const totals = manualFoods.reduce(
     (a, f) => ({ calories: a.calories + f.calories, protein: a.protein + f.protein, fat: a.fat + f.fat, carbs: a.carbs + f.carbs }),
@@ -893,6 +895,25 @@ Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
 
             <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "20px" }}>|</span>
 
+            {/* Image size slider — only shown when logo is uploaded */}
+            {logoUrl && (
+              <div className="flex items-center gap-2.5" style={{ minWidth: "200px" }}>
+                <span className="text-xs font-semibold flex-shrink-0" style={{ color: "rgba(255,255,255,0.7)" }}>
+                  Kích thước ảnh: {imageSize}px
+                </span>
+                <input
+                  type="range"
+                  min={50}
+                  max={400}
+                  step={10}
+                  value={imageSize}
+                  onChange={(e) => setImageSize(Number(e.target.value))}
+                  className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: "#eb0915" }}
+                />
+              </div>
+            )}
+
             <span className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
               Click vào bất kỳ văn bản nào để chỉnh sửa trực tiếp
             </span>
@@ -940,6 +961,7 @@ Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
                 manualFoods={manualFoods}
                 date={today}
                 logoUrl={logoUrl}
+                imageSize={imageSize}
                 noticeMethod={noticeMethod}
                 noticeWater={noticeWater}
                 noticeTips={noticeTips}
