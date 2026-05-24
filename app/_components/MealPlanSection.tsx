@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import type { NutritionResult } from "./DietForm";
+import type { NutritionResult, CyclingSchedule } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -488,13 +488,20 @@ function Spinner({ light = false }: { light?: boolean }) {
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
+const DAY_SHORT_MS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+
 export default function MealPlanSection({
-  result, liveProtein, liveFat, liveCarbs, liveDer,
+  result, liveProtein, liveFat, liveCarbs, liveDer, cyclingSchedule,
 }: {
   result: NutritionResult; liveProtein: number; liveFat: number; liveCarbs: number; liveDer: number;
+  cyclingSchedule: CyclingSchedule | null;
 }) {
   const aiInFlight = useRef(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Default cycling day = today (0=Mon…6=Sun)
+  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
+  const [cyclingDayIdx, setCyclingDayIdx] = useState(todayIdx);
 
   const [activeTab, setActiveTab] = useState<Tab>("ai");
   const [mealCount, setMealCount] = useState<MealCount>(3);
@@ -533,23 +540,42 @@ export default function MealPlanSection({
     setAiError(null);
     setAiMeals(null);
 
-    // Per-meal targets — computed once so prompt numbers are consistent
-    const calPerMeal   = Math.round(liveDer      / mealCount);
-    const proPerMeal   = Math.round(liveProtein   / mealCount);
-    const fatPerMeal   = Math.round(liveFat       / mealCount);
-    const carbPerMeal  = Math.round(liveCarbs     / mealCount);
-    const calMin       = calPerMeal - 50;
-    const calMax       = calPerMeal + 50;
-    const proMin       = Math.round(liveProtein * 0.95);
-    const fatMin       = Math.round(liveFat     * 0.95);
+    // Effective calorie/macro for the selected cycling day (or base DER if cycling disabled)
+    const cyclingDay = cyclingSchedule?.enabled ? cyclingSchedule.days[cyclingDayIdx] : null;
+    const effectiveDer = cyclingDay ? cyclingDay.kcal : liveDer;
+    const calRatio = liveDer > 0 ? effectiveDer / liveDer : 1;
+    const effectiveProtein = Math.round(liveProtein * calRatio);
+    const effectiveFat     = Math.round(liveFat     * calRatio);
+    const effectiveCarbs   = Math.round(liveCarbs   * calRatio);
 
-    const prompt = `⚠️ LỆNH BẮT BUỘC: Hãy thiết kế thực đơn bám sát theo chỉ số DER là ${liveDer} kcal và các Macro Protein: ${liveProtein}g, Carbs: ${liveCarbs}g, Fat: ${liveFat}g do người dùng tự cấu hình. Tuyệt đối không dùng công thức tính mặc định để suy ra lại macro. Mọi tính toán phân bổ gram thực phẩm đều phải xuất phát từ các con số này.
+    // Per-meal targets
+    const calPerMeal  = Math.round(effectiveDer     / mealCount);
+    const proPerMeal  = Math.round(effectiveProtein / mealCount);
+    const fatPerMeal  = Math.round(effectiveFat     / mealCount);
+    const carbPerMeal = Math.round(effectiveCarbs   / mealCount);
+    const calMin      = calPerMeal - 50;
+    const calMax      = calPerMeal + 50;
+    const proMin      = Math.round(effectiveProtein * 0.95);
+    const fatMin      = Math.round(effectiveFat     * 0.95);
 
+    const cyclingSection = cyclingSchedule?.enabled && cyclingDay
+      ? `
+=== CALORIE CYCLING — CHẾ ĐỘ ĂN LINH HOẠT 7 NGÀY ===
+⚠️ LỆNH BẮT BUỘC: Thực đơn hôm nay là cho ${cyclingDay.name} (${cyclingDay.isHigh ? "Ngày HIGH Calo" : "Ngày LOW Calo"}).
+Hạn mức ngày này: ${effectiveDer.toLocaleString("vi-VN")} kcal — KHÔNG được dùng mức DER chung cho tất cả các ngày.
+
+Lịch Calorie Cycling cả tuần (tham khảo):
+${cyclingSchedule.days.map(d => `• ${d.name}: ${d.kcal.toLocaleString("vi-VN")} kcal (${d.isHigh ? "HIGH" : "LOW"})`).join("\n")}
+Trung bình tuần: ${cyclingSchedule.weeklyAvg.toLocaleString("vi-VN")} kcal/ngày`
+      : "";
+
+    const prompt = `⚠️ LỆNH BẮT BUỘC: Hãy thiết kế thực đơn bám sát theo chỉ số DER là ${effectiveDer} kcal và các Macro Protein: ${effectiveProtein}g, Carbs: ${effectiveCarbs}g, Fat: ${effectiveFat}g do người dùng tự cấu hình. Tuyệt đối không dùng công thức tính mặc định để suy ra lại macro. Mọi tính toán phân bổ gram thực phẩm đều phải xuất phát từ các con số này.
+${cyclingSection}
 Thiết kế thực đơn ${mealCount} bữa cho khách hàng theo QUY TRÌNH 4 BƯỚC.
 
 === DỮ LIỆU ĐẦU VÀO (DO PT CẤU HÌNH — KHÔNG ĐƯỢC THAY ĐỔI) ===
-Tổng Calo mục tiêu: ${liveDer} kcal
-Protein mục tiêu: ${liveProtein}g | Fat mục tiêu: ${liveFat}g | Carbs mục tiêu: ${liveCarbs}g
+Tổng Calo mục tiêu: ${effectiveDer} kcal
+Protein mục tiêu: ${effectiveProtein}g | Fat mục tiêu: ${effectiveFat}g | Carbs mục tiêu: ${effectiveCarbs}g
 Thực phẩm THÍCH: ${result.likes || "không có"}
 Thực phẩm GÉT/DỊ ỨNG: ${result.dislikes || "không có"}
 
@@ -558,9 +584,9 @@ Calo mỗi bữa: ~${calPerMeal} kcal (dao động cho phép: ${calMin}–${calM
 Protein mỗi bữa: ~${proPerMeal}g | Fat: ~${fatPerMeal}g | Carbs: ~${carbPerMeal}g
 
 === NGƯỠNG TỰ KIỂM TRA — Bước 4 (Self-Check) ===
-Tổng Protein cả ngày: ${proMin}g – ${liveProtein}g (95%–100%)
-Tổng Fat cả ngày: ${fatMin}g – ${liveFat}g (95%–100%)
-Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
+Tổng Protein cả ngày: ${proMin}g – ${effectiveProtein}g (95%–100%)
+Tổng Fat cả ngày: ${fatMin}g – ${effectiveFat}g (95%–100%)
+Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
 → Nếu BẤT KỲ chỉ số nào lệch ngoài ngưỡng trên, điều chỉnh lại gram thực phẩm trước khi xuất JSON.`;
 
     try {
@@ -588,7 +614,7 @@ Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
         setAiCooldown(s => { if (s <= 1) { clearInterval(t); return 0; } return s - 1; });
       }, 1000);
     }
-  }, [result, mealCount, liveDer, liveProtein, liveFat, liveCarbs]);
+  }, [result, mealCount, liveDer, liveProtein, liveFat, liveCarbs, cyclingSchedule, cyclingDayIdx]);
 
   // ── Random suggest ────────────────────────────────────────────────────────
 
@@ -676,6 +702,40 @@ Tổng Calo cả ngày: ${liveDer - 50}–${liveDer + 50} kcal
                   ))}
                 </div>
               </div>
+
+              {/* Cycling day picker — only when cycling is active */}
+              {cyclingSchedule?.enabled && (
+                <div>
+                  <p className="dp-label">Ngày muốn tạo thực đơn</p>
+                  <div className="grid grid-cols-7 gap-1 mt-1">
+                    {cyclingSchedule.days.map((day, i) => (
+                      <button key={i} type="button" onClick={() => setCyclingDayIdx(i)}
+                        className="rounded-xl py-2 flex flex-col items-center transition-all"
+                        style={{
+                          border: cyclingDayIdx === i
+                            ? `1.5px solid ${day.isHigh ? "#eb0915" : "#3b82f6"}`
+                            : "1px solid rgba(18,16,13,0.12)",
+                          background: cyclingDayIdx === i
+                            ? day.isHigh ? "rgba(235,9,21,0.07)" : "rgba(59,130,246,0.07)"
+                            : "#ffffff",
+                          color: cyclingDayIdx === i
+                            ? day.isHigh ? "#eb0915" : "#3b82f6"
+                            : "rgba(18,16,13,0.45)",
+                        }}>
+                        <span style={{ fontSize: "10px", fontWeight: cyclingDayIdx === i ? 700 : 400 }}>
+                          {DAY_SHORT_MS[i]}
+                        </span>
+                        <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
+                          {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>
+                    {cyclingSchedule.days[cyclingDayIdx].isHigh ? "▲ Ngày HIGH" : "▼ Ngày LOW"} — {cyclingSchedule.days[cyclingDayIdx].kcal.toLocaleString("vi-VN")} kcal
+                  </p>
+                </div>
+              )}
 
               {(() => {
                 const blocked = aiLoading || aiCooldown > 0;

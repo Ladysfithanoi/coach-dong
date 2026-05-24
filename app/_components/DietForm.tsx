@@ -52,6 +52,16 @@ export interface NutritionResult {
   monthsToGoal: number | null;
 }
 
+export interface CyclingSchedule {
+  enabled: boolean;
+  highCalKcal: number;
+  lowCalKcal: number;
+  highCalPercent: number;
+  lowCalPercent: number;
+  days: { name: string; kcal: number; isHigh: boolean }[];
+  weeklyAvg: number;
+}
+
 type FormErrors = Partial<Record<keyof FormState, string>>;
 
 // ─── Calculation Logic ────────────────────────────────────────────────────────
@@ -249,6 +259,11 @@ const INITIAL_FORM: FormState = {
   goalInputValue: "",
 };
 
+// Priority: Sat → Sun → Fri → Mon → Tue → Wed → Thu
+const HIGH_DAY_PRIORITY = [5, 6, 4, 0, 1, 2, 3];
+const DAY_SHORT = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+const DAY_FULL  = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function DietForm({ userName }: { userName: string }) {
@@ -271,12 +286,20 @@ export default function DietForm({ userName }: { userName: string }) {
 
   // DER % TDEE adjustment state
   const [derPct, setDerPct] = useState(0);
+  const [inputDerPct, setInputDerPct] = useState("0");
+
+  // Calorie cycling state
+  const [highCalDaysCount, setHighCalDaysCount] = useState(2);
+  const [highCalPercent, setHighCalPercent] = useState(120);
+  const [inputHighCalPercent, setInputHighCalPercent] = useState("120");
+  const [selectedHighDays, setSelectedHighDays] = useState<number[]>([5, 6]);
 
   // Sync macro inputs and derPct whenever a new result is calculated
   useEffect(() => {
     if (result) {
       const pct = parseFloat(((result.der / result.tdee) * 100).toFixed(1));
       setDerPct(pct);
+      setInputDerPct(String(pct));
       setMacroP(result.protein);
       setMacroF(result.fat);
       setMacroC(result.carbs);
@@ -314,6 +337,7 @@ export default function DietForm({ userName }: { userName: string }) {
     if (!result) return;
     const clamped = parseFloat(Math.max(10, Math.min(300, newPct)).toFixed(1));
     setDerPct(clamped);
+    setInputDerPct(String(clamped));
     if (autoBalance) {
       const der = Math.round(result.tdee * clamped / 100);
       const { protein, fat, carbs } = calcMacros(result.height, der);
@@ -322,6 +346,31 @@ export default function DietForm({ userName }: { userName: string }) {
       setMacroC(Math.round(carbs));
       setMacroAlert("");
     }
+  }
+
+  function handleHighCountChange(delta: number) {
+    const next = Math.max(0, Math.min(7, highCalDaysCount + delta));
+    setHighCalDaysCount(next);
+    setSelectedHighDays(HIGH_DAY_PRIORITY.slice(0, next));
+  }
+
+  function handleHighPctBlur() {
+    const v = parseFloat(inputHighCalPercent);
+    if (!isNaN(v)) {
+      const clamped = Math.max(50, Math.min(300, Math.round(v)));
+      setHighCalPercent(clamped);
+      setInputHighCalPercent(String(clamped));
+    } else {
+      setInputHighCalPercent(String(highCalPercent));
+    }
+  }
+
+  function toggleCyclingDay(dayIdx: number) {
+    const next = selectedHighDays.includes(dayIdx)
+      ? selectedHighDays.filter(d => d !== dayIdx)
+      : [...selectedHighDays, dayIdx];
+    setSelectedHighDays(next);
+    setHighCalDaysCount(next.length);
   }
 
   function handleMacroChange(field: "p" | "f" | "c", rawVal: string) {
@@ -514,6 +563,34 @@ export default function DietForm({ userName }: { userName: string }) {
   const liveDer = result
     ? (autoBalance ? customDer : macroP * 4 + macroF * 9 + macroC * 4)
     : 0;
+
+  // Calorie cycling derived values
+  const highCalKcal = result ? Math.round(customDer * highCalPercent / 100) : 0;
+  const lowDaysCount = 7 - highCalDaysCount;
+  const rawLowCalKcal = result && lowDaysCount > 0
+    ? Math.round((customDer * 7 - highCalKcal * highCalDaysCount) / lowDaysCount)
+    : (result ? customDer : 0);
+  const lowCalKcal = Math.max(0, rawLowCalKcal);
+  const lowCalPct = customDer > 0
+    ? parseFloat((rawLowCalKcal / customDer * 100).toFixed(1))
+    : 0;
+  const cyclingWarning = rawLowCalKcal < 0;
+  const dayCalories = Array.from({ length: 7 }, (_, i) =>
+    selectedHighDays.includes(i) ? highCalKcal : lowCalKcal
+  );
+  const cyclingSchedule: CyclingSchedule | null = result ? {
+    enabled: highCalDaysCount > 0 && highCalDaysCount < 7 && !cyclingWarning,
+    highCalKcal,
+    lowCalKcal,
+    highCalPercent,
+    lowCalPercent: lowCalPct,
+    days: DAY_FULL.map((name, i) => ({
+      name,
+      kcal: dayCalories[i],
+      isHigh: selectedHighDays.includes(i),
+    })),
+    weeklyAvg: Math.round(dayCalories.reduce((a, b) => a + b, 0) / 7),
+  } : null;
 
   return (
     <>
@@ -1085,13 +1162,18 @@ export default function DietForm({ userName }: { userName: string }) {
                     <div className="flex items-center gap-1">
                       <input
                         type="number"
-                        value={derPct}
+                        value={inputDerPct}
                         step={0.1}
                         min={10}
                         max={300}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (!isNaN(v)) handleDerPctChange(v);
+                        onChange={(e) => setInputDerPct(e.target.value)}
+                        onBlur={() => {
+                          const v = parseFloat(inputDerPct);
+                          if (!isNaN(v)) {
+                            handleDerPctChange(v);
+                          } else {
+                            setInputDerPct(String(derPct));
+                          }
                         }}
                         className="w-14 text-center text-sm font-bold rounded-lg border-0 outline-none"
                         style={{
@@ -1196,6 +1278,200 @@ export default function DietForm({ userName }: { userName: string }) {
               )}
             </div>
 
+            {/* ── Calorie Cycling ── */}
+            <div className="mt-1 pt-4" style={{ borderTop: "1px solid rgba(18,16,13,0.08)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold uppercase tracking-widest"
+                  style={{ color: "rgba(18,16,13,0.35)" }}>
+                  Calories Trung Bình (Calorie Cycling)
+                </p>
+                {cyclingSchedule && (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold"
+                    style={{ background: "rgba(18,16,13,0.05)", color: "rgba(18,16,13,0.55)" }}>
+                    TB: {cyclingSchedule.weeklyAvg.toLocaleString("vi-VN")} kcal/ngày
+                  </span>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="rounded-xl p-3" style={{ background: "rgba(235,9,21,0.04)", border: "1px solid rgba(235,9,21,0.12)" }}>
+                  <p className="text-xs font-semibold mb-2" style={{ color: "rgba(18,16,13,0.5)" }}>
+                    Ngày High Calories
+                  </p>
+                  <div className="flex items-center justify-between gap-1">
+                    <button type="button" onClick={() => handleHighCountChange(-1)}
+                      disabled={highCalDaysCount === 0}
+                      className="w-8 h-8 rounded-lg font-bold text-lg flex items-center justify-center"
+                      style={{ background: "rgba(235,9,21,0.12)", color: "#eb0915", opacity: highCalDaysCount === 0 ? 0.35 : 1 }}>
+                      −
+                    </button>
+                    <span className="font-bold" style={{ color: "#eb0915", fontSize: "18px" }}>
+                      {highCalDaysCount}
+                      <span className="text-xs font-normal ml-1" style={{ color: "rgba(18,16,13,0.4)" }}>/ 7</span>
+                    </span>
+                    <button type="button" onClick={() => handleHighCountChange(1)}
+                      disabled={highCalDaysCount === 7}
+                      className="w-8 h-8 rounded-lg font-bold text-lg flex items-center justify-center"
+                      style={{ background: "rgba(235,9,21,0.12)", color: "#eb0915", opacity: highCalDaysCount === 7 ? 0.35 : 1 }}>
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl p-3" style={{ background: "rgba(235,9,21,0.04)", border: "1px solid rgba(235,9,21,0.12)" }}>
+                  <p className="text-xs font-semibold mb-2" style={{ color: "rgba(18,16,13,0.5)" }}>
+                    Mức High (% DER)
+                  </p>
+                  <div className="flex items-center justify-between gap-1">
+                    {([-5, -1] as const).map(d => (
+                      <button key={d} type="button"
+                        onClick={() => {
+                          const v = Math.max(50, Math.min(300, highCalPercent + d));
+                          setHighCalPercent(v);
+                          setInputHighCalPercent(String(v));
+                        }}
+                        className="px-1.5 py-1 rounded-md text-xs font-bold"
+                        style={{ background: "rgba(235,9,21,0.12)", color: "#eb0915" }}>
+                        {d}%
+                      </button>
+                    ))}
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="number"
+                        value={inputHighCalPercent}
+                        min={50} max={300} step={1}
+                        onChange={e => setInputHighCalPercent(e.target.value)}
+                        onBlur={handleHighPctBlur}
+                        className="text-center font-bold rounded-md border-0 outline-none"
+                        style={{
+                          width: "40px", background: "rgba(235,9,21,0.1)", color: "#eb0915",
+                          fontSize: "13px", padding: "3px 1px",
+                          appearance: "none", WebkitAppearance: "none", MozAppearance: "textfield",
+                        }}
+                      />
+                      <span className="text-xs font-bold" style={{ color: "#eb0915" }}>%</span>
+                    </div>
+                    {([1, 5] as const).map(d => (
+                      <button key={d} type="button"
+                        onClick={() => {
+                          const v = Math.max(50, Math.min(300, highCalPercent + d));
+                          setHighCalPercent(v);
+                          setInputHighCalPercent(String(v));
+                        }}
+                        className="px-1.5 py-1 rounded-md text-xs font-bold"
+                        style={{ background: "rgba(235,9,21,0.12)", color: "#eb0915" }}>
+                        +{d}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Auto-balance summary */}
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-3"
+                style={{ background: "rgba(18,16,13,0.03)", border: "1px solid rgba(18,16,13,0.07)" }}>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold" style={{ color: "#eb0915" }}>▲ High — {highCalDaysCount} ngày</p>
+                  <p className="text-sm font-bold" style={{ color: "#eb0915" }}>
+                    {highCalPercent}% · {highCalKcal.toLocaleString("vi-VN")} kcal
+                  </p>
+                </div>
+                <div style={{ width: "1px", height: "36px", background: "rgba(18,16,13,0.1)" }} />
+                <div className="flex-1 text-right">
+                  <p className="text-xs font-semibold" style={{ color: cyclingWarning ? "#eb0915" : "rgba(18,16,13,0.45)" }}>
+                    ▼ Low — {lowDaysCount} ngày
+                  </p>
+                  <p className="text-sm font-bold" style={{ color: cyclingWarning ? "#eb0915" : "rgba(18,16,13,0.6)" }}>
+                    {lowCalPct}% · {lowCalKcal.toLocaleString("vi-VN")} kcal
+                  </p>
+                </div>
+              </div>
+
+              {/* Warning */}
+              {cyclingWarning && (
+                <div className="flex items-start gap-2 rounded-xl px-4 py-3 mb-3 text-sm font-semibold"
+                  style={{ background: "rgba(235,9,21,0.07)", border: "1px solid rgba(235,9,21,0.3)", color: "#eb0915" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 mt-0.5">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  Số ngày High quá nhiều hoặc mức % quá cao khiến ngày Low bị âm calo.
+                  Hãy giảm số ngày High hoặc hạ mức %.
+                </div>
+              )}
+
+              {/* Bar chart */}
+              {(() => {
+                const CHART_H = 104;
+                const maxKcal = Math.max(highCalKcal, customDer, lowCalKcal, 1) * 1.08;
+                const derLineY = Math.round((customDer / maxKcal) * CHART_H);
+                return (
+                  <div>
+                    <p className="text-xs mb-2" style={{ color: "rgba(18,16,13,0.4)" }}>
+                      Click vào cột để chọn / bỏ ngày High Calo
+                    </p>
+
+                    {/* Kcal + % labels row */}
+                    <div style={{ display: "flex", gap: "4px", marginBottom: "3px" }}>
+                      {dayCalories.map((kcal, i) => {
+                        const isHigh = selectedHighDays.includes(i);
+                        const pct = customDer > 0 ? Math.round(kcal / customDer * 100) : 0;
+                        return (
+                          <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                            <div style={{ fontSize: "8px", fontWeight: 700, color: isHigh ? "#eb0915" : "#3b82f6", lineHeight: 1.2 }}>
+                              {kcal >= 1000 ? `${(kcal / 1000).toFixed(1)}k` : kcal}
+                            </div>
+                            <div style={{ fontSize: "7px", color: isHigh ? "rgba(235,9,21,0.65)" : "rgba(59,130,246,0.65)", lineHeight: 1.2 }}>
+                              {pct}%
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Bars */}
+                    <div style={{ position: "relative", height: `${CHART_H}px`, display: "flex", alignItems: "flex-end", gap: "4px" }}>
+                      <div style={{ position: "absolute", left: 0, right: 0, bottom: `${derLineY}px`, borderTop: "1.5px dashed rgba(18,16,13,0.22)", zIndex: 1, pointerEvents: "none" }} />
+                      <span style={{ position: "absolute", right: 2, bottom: `${derLineY + 2}px`, fontSize: "8px", fontWeight: 600, color: "rgba(18,16,13,0.38)", lineHeight: 1, zIndex: 2, pointerEvents: "none" }}>
+                        100% DER
+                      </span>
+
+                      {dayCalories.map((kcal, i) => {
+                        const isHigh = selectedHighDays.includes(i);
+                        const barH = Math.max(6, Math.round((kcal / maxKcal) * CHART_H));
+                        return (
+                          <button key={i} type="button" onClick={() => toggleCyclingDay(i)}
+                            title={`${DAY_FULL[i]}: ${kcal.toLocaleString("vi-VN")} kcal — Click để ${isHigh ? "bỏ High" : "chọn High"}`}
+                            style={{
+                              flex: 1, height: `${barH}px`,
+                              background: isHigh
+                                ? "linear-gradient(to top, #eb0915, #ff6b35)"
+                                : "linear-gradient(to top, #3b82f6, #60a5fa)",
+                              borderRadius: "4px 4px 0 0",
+                              border: "none", cursor: "pointer", position: "relative", zIndex: 2,
+                              transition: "opacity 0.15s",
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.opacity = "0.72"; }}
+                            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* Day name labels */}
+                    <div style={{ display: "flex", gap: "4px", marginTop: "4px" }}>
+                      {DAY_SHORT.map((d, i) => (
+                        <div key={i} style={{ flex: 1, textAlign: "center", fontSize: "10px", fontWeight: selectedHighDays.includes(i) ? 700 : 400, color: selectedHighDays.includes(i) ? "#eb0915" : "rgba(18,16,13,0.4)" }}>
+                          {d}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
             {liveRoadmap ? (
               <div
                 className="rounded-xl p-4 shadow-sm"
@@ -1251,6 +1527,7 @@ export default function DietForm({ userName }: { userName: string }) {
             liveFat={macroF}
             liveCarbs={macroC}
             liveDer={liveDer}
+            cyclingSchedule={cyclingSchedule}
           />
         )}
 
