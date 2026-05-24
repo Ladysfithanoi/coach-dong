@@ -600,6 +600,12 @@ export default function DietForm({ userName }: { userName: string }) {
   const dayCalories = Array.from({ length: 7 }, (_, i) =>
     selectedHighDays.includes(i) ? highCalKcal : lowCalKcal
   );
+  // actualKcal = P×4 + F×9 + C×4 — always the true calorie total after the carbs-as-lever algo
+  const dayMacroBase = dayCalories.map(targetKcal => {
+    const { protein, fat, carbs } = calcDayMacros(targetKcal, macroP, macroF);
+    const actualKcal = protein * 4 + fat * 9 + carbs * 4;
+    return { protein, fat, carbs, actualKcal };
+  });
   const cyclingSchedule: CyclingSchedule | null = result ? {
     enabled: highCalDaysCount > 0 && highCalDaysCount < 7 && !cyclingWarning,
     highCalKcal,
@@ -609,11 +615,10 @@ export default function DietForm({ userName }: { userName: string }) {
     baseProtein: macroP,
     baseFat: macroF,
     days: DAY_FULL.map((name, i) => {
-      const kcal = dayCalories[i];
-      const { protein, fat, carbs } = calcDayMacros(kcal, macroP, macroF);
-      return { name, kcal, isHigh: selectedHighDays.includes(i), protein, fat, carbs };
+      const { protein, fat, carbs, actualKcal } = dayMacroBase[i];
+      return { name, kcal: actualKcal, isHigh: selectedHighDays.includes(i), protein, fat, carbs };
     }),
-    weeklyAvg: Math.round(dayCalories.reduce((a, b) => a + b, 0) / 7),
+    weeklyAvg: Math.round(dayMacroBase.reduce((a, b) => a + b.actualKcal, 0) / 7),
   } : null;
 
   return (
@@ -1428,10 +1433,8 @@ export default function DietForm({ userName }: { userName: string }) {
               {/* Bar chart */}
               {(() => {
                 const CHART_H = 104;
-                const maxKcal = Math.max(highCalKcal, customDer, lowCalKcal, 1) * 1.08;
+                const maxKcal = Math.max(...dayMacroBase.map(m => m.actualKcal), customDer, 1) * 1.08;
                 const derLineY = Math.round((customDer / maxKcal) * CHART_H);
-                // Per-day macros using carbs-as-lever algorithm
-                const dayMacros = dayCalories.map(kcal => calcDayMacros(kcal, macroP, macroF));
                 return (
                   <div>
                     <p className="text-xs mb-2" style={{ color: "rgba(18,16,13,0.4)" }}>
@@ -1440,13 +1443,13 @@ export default function DietForm({ userName }: { userName: string }) {
 
                     {/* Kcal + % labels row */}
                     <div style={{ display: "flex", gap: "4px", marginBottom: "3px" }}>
-                      {dayCalories.map((kcal, i) => {
+                      {dayMacroBase.map((m, i) => {
                         const isHigh = selectedHighDays.includes(i);
-                        const pct = customDer > 0 ? Math.round(kcal / customDer * 100) : 0;
+                        const pct = customDer > 0 ? Math.round(m.actualKcal / customDer * 100) : 0;
                         return (
                           <div key={i} style={{ flex: 1, textAlign: "center" }}>
                             <div style={{ fontSize: "8px", fontWeight: 700, color: isHigh ? "#eb0915" : "#3b82f6", lineHeight: 1.2 }}>
-                              {kcal >= 1000 ? `${(kcal / 1000).toFixed(1)}k` : kcal}
+                              {m.actualKcal >= 1000 ? `${(m.actualKcal / 1000).toFixed(1)}k` : m.actualKcal}
                             </div>
                             <div style={{ fontSize: "7px", color: isHigh ? "rgba(235,9,21,0.65)" : "rgba(59,130,246,0.65)", lineHeight: 1.2 }}>
                               {pct}%
@@ -1463,13 +1466,13 @@ export default function DietForm({ userName }: { userName: string }) {
                         100% DER
                       </span>
 
-                      {dayCalories.map((kcal, i) => {
+                      {dayMacroBase.map((m, i) => {
                         const isHigh = selectedHighDays.includes(i);
-                        const barH = Math.max(6, Math.round((kcal / maxKcal) * CHART_H));
-                        const { protein, fat, carbs } = dayMacros[i];
+                        const barH = Math.max(6, Math.round((m.actualKcal / maxKcal) * CHART_H));
+                        const { protein, fat, carbs, actualKcal } = m;
                         return (
                           <button key={i} type="button" onClick={() => toggleCyclingDay(i)}
-                            title={`${DAY_FULL[i]} (${isHigh ? "HIGH" : "LOW"})\n${kcal.toLocaleString("vi-VN")} kcal\nP: ${protein}g | F: ${fat}g | C: ${carbs}g\nClick để ${isHigh ? "bỏ High" : "đặt High"}`}
+                            title={`${DAY_FULL[i]} (${isHigh ? "HIGH" : "LOW"})\n${actualKcal.toLocaleString("vi-VN")} kcal\nP: ${protein}g | F: ${fat}g | C: ${carbs}g\nClick để ${isHigh ? "bỏ High" : "đặt High"}`}
                             style={{
                               flex: 1, height: `${barH}px`,
                               background: isHigh
@@ -1497,7 +1500,7 @@ export default function DietForm({ userName }: { userName: string }) {
 
                     {/* Carbs per day — the lever */}
                     <div style={{ display: "flex", gap: "4px", marginTop: "2px" }}>
-                      {dayMacros.map((m, i) => {
+                      {dayMacroBase.map((m, i) => {
                         const isHigh = selectedHighDays.includes(i);
                         return (
                           <div key={i} style={{ flex: 1, textAlign: "center", fontSize: "8px", color: isHigh ? "rgba(235,9,21,0.55)" : "rgba(59,130,246,0.55)" }}>
