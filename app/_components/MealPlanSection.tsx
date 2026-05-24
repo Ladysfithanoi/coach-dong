@@ -543,9 +543,11 @@ export default function MealPlanSection({
     const proMin       = Math.round(liveProtein * 0.95);
     const fatMin       = Math.round(liveFat     * 0.95);
 
-    const prompt = `Thiết kế thực đơn ${mealCount} bữa cho khách hàng theo QUY TRÌNH 4 BƯỚC.
+    const prompt = `⚠️ LỆNH BẮT BUỘC: Hãy thiết kế thực đơn bám sát theo chỉ số DER là ${liveDer} kcal và các Macro Protein: ${liveProtein}g, Carbs: ${liveCarbs}g, Fat: ${liveFat}g do người dùng tự cấu hình. Tuyệt đối không dùng công thức tính mặc định để suy ra lại macro. Mọi tính toán phân bổ gram thực phẩm đều phải xuất phát từ các con số này.
 
-=== DỮ LIỆU ĐẦU VÀO ===
+Thiết kế thực đơn ${mealCount} bữa cho khách hàng theo QUY TRÌNH 4 BƯỚC.
+
+=== DỮ LIỆU ĐẦU VÀO (DO PT CẤU HÌNH — KHÔNG ĐƯỢC THAY ĐỔI) ===
 Tổng Calo mục tiêu: ${liveDer} kcal
 Protein mục tiêu: ${liveProtein}g | Fat mục tiêu: ${liveFat}g | Carbs mục tiêu: ${liveCarbs}g
 Thực phẩm THÍCH: ${result.likes || "không có"}

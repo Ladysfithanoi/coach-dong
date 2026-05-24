@@ -269,9 +269,14 @@ export default function DietForm({ userName }: { userName: string }) {
   const [autoBalance, setAutoBalance] = useState(true);
   const [macroAlert, setMacroAlert] = useState("");
 
-  // Sync macro inputs whenever a new result is calculated
+  // DER % TDEE adjustment state
+  const [derPct, setDerPct] = useState(0);
+
+  // Sync macro inputs and derPct whenever a new result is calculated
   useEffect(() => {
     if (result) {
+      const pct = parseFloat(((result.der / result.tdee) * 100).toFixed(1));
+      setDerPct(pct);
       setMacroP(result.protein);
       setMacroF(result.fat);
       setMacroC(result.carbs);
@@ -305,6 +310,20 @@ export default function DietForm({ userName }: { userName: string }) {
     setForm((prev) => ({ ...prev, goalInputMode: mode, goalInputValue: "" }));
   }
 
+  function handleDerPctChange(newPct: number) {
+    if (!result) return;
+    const clamped = parseFloat(Math.max(10, Math.min(300, newPct)).toFixed(1));
+    setDerPct(clamped);
+    if (autoBalance) {
+      const der = Math.round(result.tdee * clamped / 100);
+      const { protein, fat, carbs } = calcMacros(result.height, der);
+      setMacroP(Math.round(protein));
+      setMacroF(fat);
+      setMacroC(Math.round(carbs));
+      setMacroAlert("");
+    }
+  }
+
   function handleMacroChange(field: "p" | "f" | "c", rawVal: string) {
     if (!result) return;
     const parsed = parseInt(rawVal, 10);
@@ -320,7 +339,7 @@ export default function DietForm({ userName }: { userName: string }) {
     }
 
     const FAT_MIN = 40, CARB_MIN = 30;
-    const der = result.der;
+    const der = Math.round(result.tdee * derPct / 100);
 
     if (field === "p") {
       const remaining = der - val * 4;
@@ -488,9 +507,12 @@ export default function DietForm({ userName }: { userName: string }) {
     return computeRoadmap(w, form.goalInputMode, form.goalInputValue);
   })();
 
-  // Live calorie total: auto-balance always matches DER; manual mode uses edited macros
+  // customDer: DER based on user-adjusted % TDEE
+  const customDer = result ? Math.round(result.tdee * derPct / 100) : 0;
+
+  // liveDer: in autoBalance mode follows customDer; in manual mode sums macro cals
   const liveDer = result
-    ? (autoBalance ? result.der : macroP * 4 + macroF * 9 + macroC * 4)
+    ? (autoBalance ? customDer : macroP * 4 + macroF * 9 + macroC * 4)
     : 0;
 
   return (
@@ -1034,8 +1056,62 @@ export default function DietForm({ userName }: { userName: string }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <StatBox label="TDEE" value={`${result.tdee.toLocaleString("vi-VN")} kcal`}
                 sub="Năng lượng duy trì" />
-              <StatBox label="DER — Mục tiêu" value={`${liveDer.toLocaleString("vi-VN")} kcal`}
-                sub="Calo cần nạp mỗi ngày" highlight />
+
+              {/* DER block with % TDEE adjuster */}
+              <div className="rounded-xl p-4" style={{ background: "#eb0915", color: "#ffffff" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "rgba(255,255,255,0.65)" }}>DER — Mục tiêu</p>
+                <p className="text-2xl font-bold mt-1 leading-none">
+                  {liveDer.toLocaleString("vi-VN")} kcal
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.55)" }}>
+                  Calo cần nạp mỗi ngày
+                </p>
+
+                {/* % TDEE controls */}
+                <div className="mt-3 pt-2.5" style={{ borderTop: "1px solid rgba(255,255,255,0.2)" }}>
+                  <p className="text-xs mb-2" style={{ color: "rgba(255,255,255,0.7)" }}>
+                    Điều chỉnh DER theo % TDEE
+                  </p>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {([-5, -1] as const).map((d) => (
+                      <button key={d} type="button"
+                        onClick={() => handleDerPctChange(derPct + d)}
+                        className="px-2 py-1 rounded-lg text-xs font-bold transition-opacity hover:opacity-80"
+                        style={{ background: "rgba(255,255,255,0.2)", color: "#fff" }}>
+                        {d}%
+                      </button>
+                    ))}
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={derPct}
+                        step={0.1}
+                        min={10}
+                        max={300}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v)) handleDerPctChange(v);
+                        }}
+                        className="w-14 text-center text-sm font-bold rounded-lg border-0 outline-none"
+                        style={{
+                          background: "rgba(255,255,255,0.25)", color: "#fff", padding: "4px 2px",
+                          appearance: "none", WebkitAppearance: "none", MozAppearance: "textfield",
+                        }}
+                      />
+                      <span className="text-xs font-bold" style={{ color: "rgba(255,255,255,0.8)" }}>%</span>
+                    </div>
+                    {([1, 5] as const).map((d) => (
+                      <button key={d} type="button"
+                        onClick={() => handleDerPctChange(derPct + d)}
+                        className="px-2 py-1 rounded-lg text-xs font-bold transition-opacity hover:opacity-80"
+                        style={{ background: "rgba(255,255,255,0.2)", color: "#fff" }}>
+                        +{d}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* ── Macro Editor ── */}
@@ -1048,7 +1124,18 @@ export default function DietForm({ userName }: { userName: string }) {
                 </p>
                 <button
                   type="button"
-                  onClick={() => { setAutoBalance((v) => !v); setMacroAlert(""); }}
+                  onClick={() => {
+                    const next = !autoBalance;
+                    setAutoBalance(next);
+                    setMacroAlert("");
+                    if (next && result) {
+                      const der = Math.round(result.tdee * derPct / 100);
+                      const { protein, fat, carbs } = calcMacros(result.height, der);
+                      setMacroP(Math.round(protein));
+                      setMacroF(fat);
+                      setMacroC(Math.round(carbs));
+                    }
+                  }}
                   className="flex items-center gap-2 focus:outline-none"
                   aria-label="Tự động chỉnh macro"
                 >
@@ -1083,11 +1170,14 @@ export default function DietForm({ userName }: { userName: string }) {
               {/* Three macro input boxes */}
               <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 <MacroInput label="Protein" value={macroP} color="#1d4ed8" bg="rgba(59,130,246,0.07)"
-                  onChange={(v) => handleMacroChange("p", v)} />
+                  onChange={(v) => handleMacroChange("p", v)}
+                  calPct={liveDer > 0 ? (macroP * 4 / liveDer) * 100 : 0} />
                 <MacroInput label="Fat" value={macroF} color="#b45309" bg="rgba(245,158,11,0.07)"
-                  onChange={(v) => handleMacroChange("f", v)} />
+                  onChange={(v) => handleMacroChange("f", v)}
+                  calPct={liveDer > 0 ? (macroF * 9 / liveDer) * 100 : 0} />
                 <MacroInput label="Carbs" value={macroC} color="#065f46" bg="rgba(16,185,129,0.07)"
-                  onChange={(v) => handleMacroChange("c", v)} />
+                  onChange={(v) => handleMacroChange("c", v)}
+                  calPct={liveDer > 0 ? (macroC * 4 / liveDer) * 100 : 0} />
               </div>
 
               {/* Manual mode: show computed total cals */}
@@ -1200,9 +1290,10 @@ function StatBox({ label, value, sub, highlight = false }: {
   );
 }
 
-function MacroInput({ label, value, color, bg, onChange }: {
+function MacroInput({ label, value, color, bg, onChange, calPct }: {
   label: string; value: number; color: string; bg: string;
   onChange: (val: string) => void;
+  calPct?: number;
 }) {
   return (
     <div className="rounded-xl p-3 text-center" style={{ background: bg }}>
@@ -1224,6 +1315,11 @@ function MacroInput({ label, value, color, bg, onChange }: {
         }}
       />
       <p className="text-xs font-semibold mt-1" style={{ color, opacity: 0.6 }}>g</p>
+      {calPct !== undefined && (
+        <p className="text-xs font-medium mt-0.5" style={{ color, opacity: 0.5 }}>
+          {calPct.toFixed(1)}% calo
+        </p>
+      )}
     </div>
   );
 }

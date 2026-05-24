@@ -47,3 +47,5 @@ next-env.d.ts
 
 # script artifacts (large extraction files, not needed for app)
 scripts/docx-extract/
+
+.vercel
