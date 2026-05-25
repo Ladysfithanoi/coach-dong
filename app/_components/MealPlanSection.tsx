@@ -952,9 +952,9 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                   );
                 })()}
 
-                <div className={editingMealId ? "flex gap-2" : ""}>
+                <div className={`mt-4 mb-1 ${editingMealId ? "flex gap-2" : ""}`}>
                   <button type="button" onClick={handleConfirmMeal} disabled={rows.every(r => r.food === null)}
-                    className="flex-1 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                    className="flex-1 w-full py-3 px-6 rounded-xl text-sm font-bold text-center transition-all active:scale-[0.98]"
                     style={{
                       background: rows.every(r => r.food === null) ? "rgba(18,16,13,0.3)" : editingMealId ? "#1d4ed8" : "#12100d",
                       color: "#ffffff",
@@ -964,7 +964,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                   </button>
                   {editingMealId && (
                     <button type="button" onClick={handleCancelEdit}
-                      className="px-4 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                      className="px-6 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
                       style={{ background: "rgba(18,16,13,0.07)", color: "rgba(18,16,13,0.6)" }}>
                       Hủy
                     </button>
