@@ -227,41 +227,47 @@ function PrintPreview({
 
       {/* ── Roadmap / Progress Summary ── */}
       {result.weeklyLoss !== null && (
-        <div style={{ padding: "0 40px 12px" }}>
+        <div style={{ padding: "0 40px 14px" }}>
           <div data-print-block="roadmap" style={{
-            display: "flex", flexWrap: "wrap", gap: "14px", alignItems: "center",
-            padding: "10px 14px", borderRadius: "8px",
-            border: "1px solid rgba(235,9,21,0.15)", background: "rgba(235,9,21,0.025)",
+            display: "flex", alignItems: "stretch",
+            borderRadius: "8px", overflow: "hidden",
+            border: "1px solid rgba(235,9,21,0.18)", background: "rgba(235,9,21,0.028)",
           }}>
-            {/* Text */}
-            <div style={{ flex: 1, minWidth: "180px" }}>
-              <div style={{ fontSize: "9px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
+            {/* Left: summary text */}
+            <div style={{ flex: 1, padding: "12px 16px", borderRight: "1px solid rgba(235,9,21,0.15)" }}>
+              <div style={{ fontSize: "9px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "5px" }}>
                 {result.daysToGoal ? "Lộ trình giảm cân" : "Tiến độ dự kiến"}
               </div>
-              <div contentEditable suppressContentEditableWarning style={{ fontSize: "11px", color: "#12100d", lineHeight: 1.55, outline: "none" }}>
+              <div contentEditable suppressContentEditableWarning style={{ fontSize: "12px", fontWeight: 600, color: "#12100d", lineHeight: 1.6, outline: "none" }}>
                 {result.daysToGoal
                   ? `Cần ${result.daysToGoal} ngày · ${result.weeksToGoal} tuần · ${result.monthsToGoal} tháng để đạt mục tiêu.`
                   : `Với mức thâm hụt này, khách có thể giảm khoảng ${result.weeklyLoss.toFixed(2)} kg trong 1 tuần.`
                 }
               </div>
             </div>
-            {/* Stat chips */}
-            {result.totalToLose !== null && (
-              <div style={{ textAlign: "center", flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Cần giảm</div>
-                <div style={{ fontSize: "14px", fontWeight: 800, color: "#eb0915" }}>{result.totalToLose.toFixed(1)} kg</div>
+
+            {/* Right: 3 stat columns */}
+            <div style={{ display: "flex", flexShrink: 0, alignItems: "stretch" }}>
+              {result.totalToLose !== null && (
+                <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", borderRight: "1px solid rgba(235,9,21,0.12)", minWidth: "88px" }}>
+                  <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Cần giảm</div>
+                  <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{result.totalToLose.toFixed(1)}</div>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kg</div>
+                </div>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", borderRight: result.tdee > result.der ? "1px solid rgba(235,9,21,0.12)" : undefined, minWidth: "88px" }}>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Giảm / tuần</div>
+                <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{result.weeklyLoss.toFixed(2)}</div>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kg</div>
               </div>
-            )}
-            <div style={{ textAlign: "center", flexShrink: 0 }}>
-              <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Giảm / tuần</div>
-              <div style={{ fontSize: "14px", fontWeight: 800, color: "#12100d" }}>{result.weeklyLoss.toFixed(2)} kg</div>
+              {result.tdee > result.der && (
+                <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", minWidth: "100px" }}>
+                  <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Thâm hụt / ngày</div>
+                  <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{Math.round(result.tdee - result.der).toLocaleString("vi-VN")}</div>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kcal</div>
+                </div>
+              )}
             </div>
-            {result.tdee > result.der && (
-              <div style={{ textAlign: "center", flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Thâm hụt / ngày</div>
-                <div style={{ fontSize: "14px", fontWeight: 800, color: "#b45309" }}>{Math.round(result.tdee - result.der).toLocaleString("vi-VN")} kcal</div>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -285,7 +291,7 @@ function PrintPreview({
             ].map((row, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
                 <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
-                <td style={{ ...tdRight, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{row.value}</td>
+                <td style={{ ...tdRight, fontWeight: 700, fontSize: "14px" }} contentEditable suppressContentEditableWarning>{row.value}</td>
               </tr>
             ))}
           </tbody>
@@ -1159,8 +1165,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 page-break-inside: avoid !important;
               }
               #pdf-print-area [data-print-block="roadmap"] > div {
-                font-size: 10px !important;
-                gap: 10px !important;
+                gap: 8px !important;
               }
 
               /* ── Xoá viền và outline của contenteditable ── */
