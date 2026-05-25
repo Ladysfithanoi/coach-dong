@@ -517,6 +517,7 @@ export default function MealPlanSection({
   // Default cycling day = today (0=Mon…6=Sun)
   const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
   const [cyclingDayIdx, setCyclingDayIdx] = useState(todayIdx);
+  const [trackingDayIdx, setTrackingDayIdx] = useState(todayIdx);
 
   const [activeTab, setActiveTab] = useState<Tab>("ai");
   const [mealCount, setMealCount] = useState<MealCount>(3);
@@ -545,6 +546,14 @@ export default function MealPlanSection({
     (a, f) => ({ calories: a.calories + f.calories, protein: a.protein + f.protein, fat: a.fat + f.fat, carbs: a.carbs + f.carbs }),
     { calories: 0, protein: 0, fat: 0, carbs: 0 }
   );
+
+  const trackingDay = cyclingSchedule?.enabled ? cyclingSchedule.days[trackingDayIdx] : null;
+  const trackTarget = {
+    calories: trackingDay?.kcal    ?? liveDer,
+    protein:  trackingDay?.protein ?? liveProtein,
+    fat:      trackingDay?.fat     ?? liveFat,
+    carbs:    trackingDay?.carbs   ?? liveCarbs,
+  };
 
   // ── AI meal generation ─────────────────────────────────────────────────────
 
@@ -816,11 +825,46 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
           {activeTab === "manual" && (
             <div className="space-y-5">
               <div className="rounded-xl p-4 space-y-3.5" style={{ background: "rgba(18,16,13,0.02)", border: "1px solid rgba(18,16,13,0.08)" }}>
+
+                {/* Day picker — chỉ hiện khi Calorie Cycling đang bật */}
+                {cyclingSchedule?.enabled && (
+                  <div className="pb-3.5" style={{ borderBottom: "1px solid rgba(18,16,13,0.07)" }}>
+                    <p className="dp-label mb-1.5">Ngày đang theo dõi</p>
+                    <div className="grid grid-cols-7 gap-1">
+                      {cyclingSchedule.days.map((day, i) => (
+                        <button key={i} type="button" onClick={() => setTrackingDayIdx(i)}
+                          className="rounded-xl py-2 flex flex-col items-center transition-all"
+                          style={{
+                            border: trackingDayIdx === i
+                              ? `1.5px solid ${day.isHigh ? "#eb0915" : "#3b82f6"}`
+                              : "1px solid rgba(18,16,13,0.12)",
+                            background: trackingDayIdx === i
+                              ? day.isHigh ? "rgba(235,9,21,0.07)" : "rgba(59,130,246,0.07)"
+                              : "#ffffff",
+                            color: trackingDayIdx === i
+                              ? day.isHigh ? "#eb0915" : "#3b82f6"
+                              : "rgba(18,16,13,0.45)",
+                          }}>
+                          <span style={{ fontSize: "10px", fontWeight: trackingDayIdx === i ? 700 : 400 }}>
+                            {DAY_SHORT_MS[i]}
+                          </span>
+                          <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
+                            {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>
+                      {cyclingSchedule.days[trackingDayIdx].isHigh ? "▲ Ngày HIGH" : "▼ Ngày LOW"} — {cyclingSchedule.days[trackingDayIdx].kcal.toLocaleString("vi-VN")} kcal
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Tracking Board</p>
-                <TrackingBar label={`Calo · ${totals.calories} / ${liveDer} kcal`} current={totals.calories} target={liveDer} color="#eb0915" />
-                <TrackingBar label={`Protein · ${Math.round(totals.protein)} / ${liveProtein}g`} current={totals.protein} target={liveProtein} color="#1d4ed8" />
-                <TrackingBar label={`Fat · ${Math.round(totals.fat)} / ${liveFat}g`} current={totals.fat} target={liveFat} color="#b45309" />
-                <TrackingBar label={`Carbs · ${Math.round(totals.carbs)} / ${liveCarbs}g`} current={totals.carbs} target={liveCarbs} color="#065f46" />
+                <TrackingBar label={`Calo · ${totals.calories} / ${trackTarget.calories} kcal`} current={totals.calories} target={trackTarget.calories} color="#eb0915" />
+                <TrackingBar label={`Protein · ${Math.round(totals.protein)} / ${trackTarget.protein}g`} current={totals.protein} target={trackTarget.protein} color="#1d4ed8" />
+                <TrackingBar label={`Fat · ${Math.round(totals.fat)} / ${trackTarget.fat}g`} current={totals.fat} target={trackTarget.fat} color="#b45309" />
+                <TrackingBar label={`Carbs · ${Math.round(totals.carbs)} / ${trackTarget.carbs}g`} current={totals.carbs} target={trackTarget.carbs} color="#065f46" />
               </div>
 
               <div className="space-y-4">
