@@ -211,21 +211,29 @@ function PrintPreview({
       </div>
 
       {/* ── Client info ── */}
-      <div style={{ padding: "18px 40px", display: "flex", gap: "28px", flexWrap: "wrap", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
-        {[
-          { label: "Khách hàng", value: result.name, large: true },
-          { label: "Mục tiêu", value: GOAL_LABEL_PDF[result.weightGoal] ?? result.weightGoal },
-          { label: "Thông số", value: `${result.gender === "male" ? "Nam" : "Nữ"} · ${result.age}t · ${result.height}cm · ${result.weight}kg` },
-          { label: "DER (Calo/ngày)", value: `${result.der.toLocaleString("vi-VN")} kcal` },
-        ].map(item => (
-          <div key={item.label}>
-            <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>{item.label}</div>
-            <div contentEditable suppressContentEditableWarning style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none" }}>
-              {item.value}
-            </div>
+      {(() => {
+        const derLabel = printCyclingDay
+          ? `Calo ngày ${printCyclingDay.phase === "high" ? "HIGH" : printCyclingDay.phase === "medium" ? "MED" : "LOW"}`
+          : "DER (Calo/ngày)";
+        const derValue = (printCyclingDay?.kcal ?? result.der).toLocaleString("vi-VN") + " kcal";
+        return (
+          <div style={{ padding: "18px 40px", display: "flex", gap: "28px", flexWrap: "wrap", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
+            {[
+              { label: "Khách hàng", value: result.name, large: true },
+              { label: "Mục tiêu", value: GOAL_LABEL_PDF[result.weightGoal] ?? result.weightGoal },
+              { label: "Thông số", value: `${result.gender === "male" ? "Nam" : "Nữ"} · ${result.age}t · ${result.height}cm · ${result.weight}kg` },
+              { label: derLabel, value: derValue },
+            ].map(item => (
+              <div key={item.label}>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>{item.label}</div>
+                <div contentEditable suppressContentEditableWarning style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none" }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* ── Roadmap / Progress Summary ── */}
       {result.weeklyLoss !== null && (
@@ -262,10 +270,10 @@ function PrintPreview({
                 <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{result.weeklyLoss.toFixed(2)}</div>
                 <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kg</div>
               </div>
-              {result.tdee > result.der && (
+              {result.tdee > (printCyclingDay?.kcal ?? result.der) && (
                 <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", minWidth: "100px" }}>
                   <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Thâm hụt / ngày</div>
-                  <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{Math.round(result.tdee - result.der).toLocaleString("vi-VN")}</div>
+                  <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{Math.round(result.tdee - (printCyclingDay?.kcal ?? result.der)).toLocaleString("vi-VN")}</div>
                   <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kcal</div>
                 </div>
               )}
