@@ -585,7 +585,7 @@ export default function MealPlanSection({
     const cyclingSection = cyclingSchedule?.enabled && cyclingDay
       ? `
 === CALORIE CYCLING — CHẾ ĐỘ ĂN LINH HOẠT 7 NGÀY ===
-⚠️ LỆNH BẮT BUỘC: Thực đơn hôm nay là cho ${cyclingDay.name} (${cyclingDay.isHigh ? "Ngày HIGH Calo" : "Ngày LOW Calo"}).
+⚠️ LỆNH BẮT BUỘC: Thực đơn hôm nay là cho ${cyclingDay.name} (${cyclingDay.phase === "high" ? "Ngày HIGH Calo" : cyclingDay.phase === "medium" ? "Ngày MEDIUM Calo" : "Ngày LOW Calo"}).
 Hạn mức ngày này: ${effectiveDer.toLocaleString("vi-VN")} kcal
 Macro CHÍNH XÁC cho ngày này (KHÔNG được tự ý điều chỉnh): P:${effectiveProtein}g | F:${effectiveFat}g | C:${effectiveCarbs}g
 
@@ -593,7 +593,7 @@ Nguyên tắc: Protein & Fat được KHÓA CỨNG cố định. Chỉ có Carbs
 Tuyệt đối KHÔNG chia đều macro theo tỷ lệ — phải dùng đúng bộ số trên.
 
 Lịch Calorie Cycling cả tuần (bối cảnh đầy đủ):
-${cyclingSchedule.days.map(d => `• ${d.name}: ${d.kcal.toLocaleString("vi-VN")} kcal (${d.isHigh ? "HIGH" : "LOW"}) — P:${d.protein}g F:${d.fat}g C:${d.carbs}g`).join("\n")}
+${cyclingSchedule.days.map(d => `• ${d.name}: ${d.kcal.toLocaleString("vi-VN")} kcal (${d.phase === "high" ? "HIGH" : d.phase === "medium" ? "MED" : "LOW"}) — P:${d.protein}g F:${d.fat}g C:${d.carbs}g`).join("\n")}
 Trung bình tuần: ${cyclingSchedule.weeklyAvg.toLocaleString("vi-VN")} kcal/ngày`
       : "";
 
@@ -739,31 +739,29 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 <div>
                   <p className="dp-label">Ngày muốn tạo thực đơn</p>
                   <div className="grid grid-cols-7 gap-1 mt-1">
-                    {cyclingSchedule.days.map((day, i) => (
-                      <button key={i} type="button" onClick={() => setCyclingDayIdx(i)}
-                        className="rounded-xl py-2 flex flex-col items-center transition-all"
-                        style={{
-                          border: cyclingDayIdx === i
-                            ? `1.5px solid ${day.isHigh ? "#eb0915" : "#3b82f6"}`
-                            : "1px solid rgba(18,16,13,0.12)",
-                          background: cyclingDayIdx === i
-                            ? day.isHigh ? "rgba(235,9,21,0.07)" : "rgba(59,130,246,0.07)"
-                            : "#ffffff",
-                          color: cyclingDayIdx === i
-                            ? day.isHigh ? "#eb0915" : "#3b82f6"
-                            : "rgba(18,16,13,0.45)",
-                        }}>
-                        <span style={{ fontSize: "10px", fontWeight: cyclingDayIdx === i ? 700 : 400 }}>
-                          {DAY_SHORT_MS[i]}
-                        </span>
-                        <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
-                          {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
-                        </span>
-                      </button>
-                    ))}
+                    {cyclingSchedule.days.map((day, i) => {
+                      const phaseColor = day.phase === "high" ? "#eb0915" : day.phase === "medium" ? "#d97706" : "#3b82f6";
+                      const phaseBg   = day.phase === "high" ? "rgba(235,9,21,0.07)" : day.phase === "medium" ? "rgba(217,119,6,0.07)" : "rgba(59,130,246,0.07)";
+                      return (
+                        <button key={i} type="button" onClick={() => setCyclingDayIdx(i)}
+                          className="rounded-xl py-2 flex flex-col items-center transition-all"
+                          style={{
+                            border: cyclingDayIdx === i ? `1.5px solid ${phaseColor}` : "1px solid rgba(18,16,13,0.12)",
+                            background: cyclingDayIdx === i ? phaseBg : "#ffffff",
+                            color: cyclingDayIdx === i ? phaseColor : "rgba(18,16,13,0.45)",
+                          }}>
+                          <span style={{ fontSize: "10px", fontWeight: cyclingDayIdx === i ? 700 : 400 }}>
+                            {DAY_SHORT_MS[i]}
+                          </span>
+                          <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
+                            {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                   <p className="mt-1.5 text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>
-                    {cyclingSchedule.days[cyclingDayIdx].isHigh ? "▲ Ngày HIGH" : "▼ Ngày LOW"} — {cyclingSchedule.days[cyclingDayIdx].kcal.toLocaleString("vi-VN")} kcal
+                    {cyclingSchedule.days[cyclingDayIdx].phase === "high" ? "▲ Ngày HIGH" : cyclingSchedule.days[cyclingDayIdx].phase === "medium" ? "◆ Ngày MED" : "▼ Ngày LOW"} — {cyclingSchedule.days[cyclingDayIdx].kcal.toLocaleString("vi-VN")} kcal
                   </p>
                 </div>
               )}
@@ -831,31 +829,29 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                   <div className="pb-3.5" style={{ borderBottom: "1px solid rgba(18,16,13,0.07)" }}>
                     <p className="dp-label mb-1.5">Ngày đang theo dõi</p>
                     <div className="grid grid-cols-7 gap-1">
-                      {cyclingSchedule.days.map((day, i) => (
-                        <button key={i} type="button" onClick={() => setTrackingDayIdx(i)}
-                          className="rounded-xl py-2 flex flex-col items-center transition-all"
-                          style={{
-                            border: trackingDayIdx === i
-                              ? `1.5px solid ${day.isHigh ? "#eb0915" : "#3b82f6"}`
-                              : "1px solid rgba(18,16,13,0.12)",
-                            background: trackingDayIdx === i
-                              ? day.isHigh ? "rgba(235,9,21,0.07)" : "rgba(59,130,246,0.07)"
-                              : "#ffffff",
-                            color: trackingDayIdx === i
-                              ? day.isHigh ? "#eb0915" : "#3b82f6"
-                              : "rgba(18,16,13,0.45)",
-                          }}>
-                          <span style={{ fontSize: "10px", fontWeight: trackingDayIdx === i ? 700 : 400 }}>
-                            {DAY_SHORT_MS[i]}
-                          </span>
-                          <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
-                            {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
-                          </span>
-                        </button>
-                      ))}
+                      {cyclingSchedule.days.map((day, i) => {
+                        const phaseColor = day.phase === "high" ? "#eb0915" : day.phase === "medium" ? "#d97706" : "#3b82f6";
+                        const phaseBg   = day.phase === "high" ? "rgba(235,9,21,0.07)" : day.phase === "medium" ? "rgba(217,119,6,0.07)" : "rgba(59,130,246,0.07)";
+                        return (
+                          <button key={i} type="button" onClick={() => setTrackingDayIdx(i)}
+                            className="rounded-xl py-2 flex flex-col items-center transition-all"
+                            style={{
+                              border: trackingDayIdx === i ? `1.5px solid ${phaseColor}` : "1px solid rgba(18,16,13,0.12)",
+                              background: trackingDayIdx === i ? phaseBg : "#ffffff",
+                              color: trackingDayIdx === i ? phaseColor : "rgba(18,16,13,0.45)",
+                            }}>
+                            <span style={{ fontSize: "10px", fontWeight: trackingDayIdx === i ? 700 : 400 }}>
+                              {DAY_SHORT_MS[i]}
+                            </span>
+                            <span style={{ fontSize: "8px", marginTop: "1px", fontWeight: 400 }}>
+                              {day.kcal >= 1000 ? `${(day.kcal / 1000).toFixed(1)}k` : day.kcal}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                     <p className="mt-1.5 text-xs" style={{ color: "rgba(18,16,13,0.38)" }}>
-                      {cyclingSchedule.days[trackingDayIdx].isHigh ? "▲ Ngày HIGH" : "▼ Ngày LOW"} — {cyclingSchedule.days[trackingDayIdx].kcal.toLocaleString("vi-VN")} kcal
+                      {cyclingSchedule.days[trackingDayIdx].phase === "high" ? "▲ Ngày HIGH" : cyclingSchedule.days[trackingDayIdx].phase === "medium" ? "◆ Ngày MED" : "▼ Ngày LOW"} — {cyclingSchedule.days[trackingDayIdx].kcal.toLocaleString("vi-VN")} kcal
                     </p>
                   </div>
                 )}
