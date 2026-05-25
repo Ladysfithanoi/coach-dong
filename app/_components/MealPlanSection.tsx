@@ -23,6 +23,7 @@ interface ManualFood {
   protein: number;
   fat: number;
   carbs: number;
+  sourceRows?: Array<{ food: FoodItem; grams: number }>;
 }
 
 type Tab = "ai" | "manual";
@@ -527,6 +528,7 @@ export default function MealPlanSection({
   const [aiMeals, setAiMeals] = useState<AiMeal[] | null>(null);
   const [manualFoods, setManualFoods] = useState<ManualFood[]>([]);
   const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
+  const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
   // Notice block state
@@ -654,6 +656,22 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
 
   // ── Manual food ────────────────────────────────────────────────────────────
 
+  function handleEditMeal(mealId: string) {
+    const meal = manualFoods.find(f => f.id === mealId);
+    if (!meal || !meal.sourceRows || meal.sourceRows.length === 0) return;
+    const restoredRows: IngredientRow[] = meal.sourceRows.map(sr => ({
+      id: `${Date.now()}-${Math.random()}`,
+      query: sr.food.name,
+      food: sr.food,
+      grams: sr.grams,
+    }));
+    setRows(restoredRows);
+    setEditingMealId(mealId);
+    setActiveDropdown(null);
+    // Scroll form into view
+    document.getElementById("manual-form-area")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function handleConfirmMeal() {
     const filled = rows.filter((r): r is IngredientRow & { food: FoodItem } => r.food !== null);
     if (filled.length === 0) return;
@@ -665,17 +683,45 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
       { calories: 0, protein: 0, fat: 0, carbs: 0 }
     );
     const ingredients = filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
-    setManualFoods(prev => {
-      const mealOrder = prev.length + 1;
-      return [...prev, {
-        id: `${Date.now()}-${Math.random()}`,
-        name: `Bữa ${mealOrder}: ${ingredients}`,
-        calories: Math.round(total.calories),
-        protein: Math.round(total.protein),
-        fat: Math.round(total.fat),
-        carbs: Math.round(total.carbs),
-      }];
-    });
+    const sourceRows = filled.map(r => ({ food: r.food, grams: r.grams }));
+
+    if (editingMealId) {
+      // UPDATE mode — ghi đè món đang sửa, giữ nguyên tên số thứ tự
+      setManualFoods(prev => prev.map(f => {
+        if (f.id !== editingMealId) return f;
+        const mealNum = f.name.match(/^Bữa (\d+)/)?.[1] ?? "";
+        return {
+          ...f,
+          name: `Bữa ${mealNum}: ${ingredients}`,
+          calories: Math.round(total.calories),
+          protein: Math.round(total.protein),
+          fat: Math.round(total.fat),
+          carbs: Math.round(total.carbs),
+          sourceRows,
+        };
+      }));
+      setEditingMealId(null);
+    } else {
+      // ADD mode — thêm món mới
+      setManualFoods(prev => {
+        const mealOrder = prev.length + 1;
+        return [...prev, {
+          id: `${Date.now()}-${Math.random()}`,
+          name: `Bữa ${mealOrder}: ${ingredients}`,
+          calories: Math.round(total.calories),
+          protein: Math.round(total.protein),
+          fat: Math.round(total.fat),
+          carbs: Math.round(total.carbs),
+          sourceRows,
+        }];
+      });
+    }
+    setRows([newRow()]);
+    setActiveDropdown(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingMealId(null);
     setRows([newRow()]);
     setActiveDropdown(null);
   }
@@ -863,8 +909,10 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 <TrackingBar label={`Carbs · ${Math.round(totals.carbs)} / ${trackTarget.carbs}g`} current={totals.carbs} target={trackTarget.carbs} color="#065f46" />
               </div>
 
-              <div className="space-y-4">
-                <p className="dp-label">Ghép bữa ăn từ nguyên liệu</p>
+              <div id="manual-form-area" className="space-y-4">
+                <p className="dp-label">
+                  {editingMealId ? "Chỉnh sửa bữa ăn" : "Ghép bữa ăn từ nguyên liệu"}
+                </p>
                 <div className="space-y-4">
                   {rows.map(row => (
                     <IngredientSearchRow key={row.id} row={row} isActive={activeDropdown === row.id} canRemove={rows.length > 1}
@@ -904,26 +952,52 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                   );
                 })()}
 
-                <button type="button" onClick={handleConfirmMeal} disabled={rows.every(r => r.food === null)}
-                  className="w-full py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
-                  style={{ background: rows.some(r => r.food !== null) ? "#12100d" : "rgba(18,16,13,0.3)", color: "#ffffff", cursor: rows.some(r => r.food !== null) ? "pointer" : "not-allowed" }}>
-                  ✓ Xác nhận gộp bữa
-                </button>
+                <div className={editingMealId ? "flex gap-2" : ""}>
+                  <button type="button" onClick={handleConfirmMeal} disabled={rows.every(r => r.food === null)}
+                    className="flex-1 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                    style={{
+                      background: rows.every(r => r.food === null) ? "rgba(18,16,13,0.3)" : editingMealId ? "#1d4ed8" : "#12100d",
+                      color: "#ffffff",
+                      cursor: rows.some(r => r.food !== null) ? "pointer" : "not-allowed",
+                    }}>
+                    {editingMealId ? "✎ Cập nhật món ăn" : "✓ Xác nhận gộp bữa"}
+                  </button>
+                  {editingMealId && (
+                    <button type="button" onClick={handleCancelEdit}
+                      className="px-4 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                      style={{ background: "rgba(18,16,13,0.07)", color: "rgba(18,16,13,0.6)" }}>
+                      Hủy
+                    </button>
+                  )}
+                </div>
               </div>
 
               {manualFoods.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Danh sách đã nhập ({manualFoods.length} món)</p>
                   {manualFoods.map(food => (
-                    <div key={food.id} className="flex items-center gap-3 rounded-xl px-4 py-3"
-                      style={{ background: "rgba(18,16,13,0.025)", border: "1px solid rgba(18,16,13,0.07)" }}>
+                    <div key={food.id} className="flex items-center gap-2 rounded-xl px-4 py-3"
+                      style={{
+                        background: editingMealId === food.id ? "rgba(29,78,216,0.06)" : "rgba(18,16,13,0.025)",
+                        border: editingMealId === food.id ? "1px solid rgba(29,78,216,0.3)" : "1px solid rgba(18,16,13,0.07)",
+                      }}>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate" style={{ color: "#12100d" }}>{food.name}</p>
                         <p className="text-xs mt-0.5" style={{ color: "rgba(18,16,13,0.4)" }}>
                           {Math.round(food.calories)} kcal &nbsp;·&nbsp; P:{Math.round(food.protein)}g F:{Math.round(food.fat)}g C:{Math.round(food.carbs)}g
                         </p>
                       </div>
-                      <button type="button" onClick={() => setManualFoods(prev => prev.filter(f => f.id !== food.id))}
+                      {food.sourceRows && food.sourceRows.length > 0 && (
+                        <button type="button" onClick={() => handleEditMeal(food.id)}
+                          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm"
+                          style={{ background: "rgba(29,78,216,0.09)", color: "#1d4ed8" }} aria-label="Chỉnh sửa">
+                          ✎
+                        </button>
+                      )}
+                      <button type="button" onClick={() => {
+                        if (editingMealId === food.id) { setEditingMealId(null); setRows([newRow()]); }
+                        setManualFoods(prev => prev.filter(f => f.id !== food.id));
+                      }}
                         className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-base font-bold"
                         style={{ background: "rgba(235,9,21,0.08)", color: "#eb0915" }} aria-label="Xoá">
                         ×
