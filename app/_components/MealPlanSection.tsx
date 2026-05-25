@@ -421,6 +421,7 @@ function IngredientSearchRow({
   onQueryChange: (val: string) => void; onSelect: (food: FoodItem) => void;
   onGramsChange: (g: number) => void; onRemove: () => void; onFocus: () => void; onBlur: () => void;
 }) {
+  const [rawGrams, setRawGrams] = useState(String(row.grams));
   const results = isActive && row.query ? searchFoods(row.query) : [];
   const macros = row.food ? computeRowMacros(row.food, row.grams) : null;
 
@@ -450,8 +451,16 @@ function IngredientSearchRow({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <input type="number" value={row.grams} min={1}
-            onChange={e => onGramsChange(Math.max(1, parseInt(e.target.value) || 100))}
+          <input type="number" value={rawGrams} min={1}
+            onChange={e => {
+              setRawGrams(e.target.value);
+              const n = parseInt(e.target.value);
+              if (!isNaN(n) && n >= 1) onGramsChange(n);
+            }}
+            onBlur={() => {
+              const n = parseInt(rawGrams);
+              if (isNaN(n) || n < 1) { setRawGrams("100"); onGramsChange(100); }
+            }}
             className="dp-input text-center" style={{ width: "68px" }} />
           <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>g</span>
         </div>
@@ -646,15 +655,18 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
       },
       { calories: 0, protein: 0, fat: 0, carbs: 0 }
     );
-    const mealName = "Bữa thủ công: " + filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
-    setManualFoods(prev => [...prev, {
-      id: `${Date.now()}-${Math.random()}`,
-      name: mealName,
-      calories: Math.round(total.calories),
-      protein: Math.round(total.protein),
-      fat: Math.round(total.fat),
-      carbs: Math.round(total.carbs),
-    }]);
+    const ingredients = filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
+    setManualFoods(prev => {
+      const mealOrder = prev.length + 1;
+      return [...prev, {
+        id: `${Date.now()}-${Math.random()}`,
+        name: `Bữa ${mealOrder}: ${ingredients}`,
+        calories: Math.round(total.calories),
+        protein: Math.round(total.protein),
+        fat: Math.round(total.fat),
+        carbs: Math.round(total.carbs),
+      }];
+    });
     setRows([newRow()]);
     setActiveDropdown(null);
   }
