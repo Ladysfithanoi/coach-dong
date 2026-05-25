@@ -1207,6 +1207,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
               style={{ maxWidth: "794px", minHeight: "1123px" }}
             >
               <PrintPreview
+                key={cyclingSchedule?.enabled ? cyclingDayIdx : "base"}
                 result={result}
                 aiMeals={aiMeals}
                 manualFoods={manualFoods}
