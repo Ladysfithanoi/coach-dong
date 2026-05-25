@@ -168,9 +168,9 @@ function PrintPreview({
   noticeWater: string;
   noticeTips: string;
 }) {
-  const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "Arial, sans-serif", textAlign: "left" };
+  const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", textAlign: "left" };
   const thDark: React.CSSProperties = { ...th, background: "#12100d" };
-  const td: React.CSSProperties = { padding: "9px 13px", fontSize: "12px", borderBottom: "1px solid rgba(18,16,13,0.07)", color: "#12100d", fontFamily: "Arial, sans-serif" };
+  const td: React.CSSProperties = { padding: "9px 13px", fontSize: "12px", borderBottom: "1px solid rgba(18,16,13,0.07)", color: "#12100d", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" };
   const tdRight: React.CSSProperties = { ...td, textAlign: "right" };
   const tdCenter: React.CSSProperties = { ...td, textAlign: "center" };
   const tdBold: React.CSSProperties = { ...td, fontWeight: 700 };
@@ -182,7 +182,7 @@ function PrintPreview({
   const hasNotice = noticeMethod || noticeWater || noticeTips;
 
   return (
-    <div style={{ background: "#ffffff", fontFamily: "Arial, sans-serif", color: "#12100d" }}>
+    <div style={{ background: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", color: "#12100d" }}>
 
       {/* ── Logo + date row ── */}
       <div style={{ padding: "20px 40px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -235,10 +235,10 @@ function PrintPreview({
           }}>
             {/* Text */}
             <div style={{ flex: 1, minWidth: "180px" }}>
-              <div style={{ fontSize: "9px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px", fontFamily: "Arial, sans-serif" }}>
+              <div style={{ fontSize: "9px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
                 {result.daysToGoal ? "Lộ trình giảm cân" : "Tiến độ dự kiến"}
               </div>
-              <div contentEditable suppressContentEditableWarning style={{ fontSize: "11px", color: "#12100d", lineHeight: 1.55, outline: "none", fontFamily: "Arial, sans-serif" }}>
+              <div contentEditable suppressContentEditableWarning style={{ fontSize: "11px", color: "#12100d", lineHeight: 1.55, outline: "none" }}>
                 {result.daysToGoal
                   ? `Cần ${result.daysToGoal} ngày · ${result.weeksToGoal} tuần · ${result.monthsToGoal} tháng để đạt mục tiêu.`
                   : `Với mức thâm hụt này, khách có thể giảm khoảng ${result.weeklyLoss.toFixed(2)} kg trong 1 tuần.`
@@ -248,18 +248,18 @@ function PrintPreview({
             {/* Stat chips */}
             {result.totalToLose !== null && (
               <div style={{ textAlign: "center", flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Arial, sans-serif" }}>Cần giảm</div>
-                <div style={{ fontSize: "14px", fontWeight: 800, color: "#eb0915", fontFamily: "Arial, sans-serif" }}>{result.totalToLose.toFixed(1)} kg</div>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Cần giảm</div>
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#eb0915" }}>{result.totalToLose.toFixed(1)} kg</div>
               </div>
             )}
             <div style={{ textAlign: "center", flexShrink: 0 }}>
-              <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Arial, sans-serif" }}>Giảm / tuần</div>
-              <div style={{ fontSize: "14px", fontWeight: 800, color: "#12100d", fontFamily: "Arial, sans-serif" }}>{result.weeklyLoss.toFixed(2)} kg</div>
+              <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Giảm / tuần</div>
+              <div style={{ fontSize: "14px", fontWeight: 800, color: "#12100d" }}>{result.weeklyLoss.toFixed(2)} kg</div>
             </div>
             {result.tdee > result.der && (
               <div style={{ textAlign: "center", flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Arial, sans-serif" }}>Thâm hụt / ngày</div>
-                <div style={{ fontSize: "14px", fontWeight: 800, color: "#b45309", fontFamily: "Arial, sans-serif" }}>{Math.round(result.tdee - result.der).toLocaleString("vi-VN")} kcal</div>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Thâm hụt / ngày</div>
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#b45309" }}>{Math.round(result.tdee - result.der).toLocaleString("vi-VN")} kcal</div>
               </div>
             )}
           </div>
@@ -1085,8 +1085,9 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 margin: 8mm;
               }
 
-              /* ── Bắt buộc in màu nền (giữ màu đỏ header) ── */
+              /* ── Bắt buộc in màu nền (giữ màu đỏ header) + đồng bộ font ── */
               *, *::before, *::after {
+                font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
                 color-adjust: exact !important;
