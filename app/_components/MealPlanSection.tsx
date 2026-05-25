@@ -157,7 +157,7 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 function PrintPreview({
-  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips,
+  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips, printCyclingDay,
 }: {
   result: NutritionResult;
   aiMeals: AiMeal[] | null;
@@ -168,6 +168,7 @@ function PrintPreview({
   noticeMethod: string;
   noticeWater: string;
   noticeTips: string;
+  printCyclingDay: { kcal: number; protein: number; fat: number; carbs: number; phase: "high" | "medium" | "low" } | null;
 }) {
   const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", textAlign: "left" };
   const thDark: React.CSSProperties = { ...th, background: "#12100d" };
@@ -274,30 +275,41 @@ function PrintPreview({
       )}
 
       {/* ── Nutrition targets ── */}
-      <div style={{ padding: "14px 40px 16px" }}>
-        <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Mục tiêu dinh dưỡng hàng ngày</div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={th}>Chỉ số</th>
-              <th style={{ ...th, textAlign: "right" }}>Mục tiêu / ngày</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { label: "DER (Calo mục tiêu)", value: `${result.der.toLocaleString("vi-VN")} kcal` },
-              { label: "Protein", value: `${result.protein}g` },
-              { label: "Fat", value: `${result.fat}g` },
-              { label: "Carbs", value: `${result.carbs}g` },
-            ].map((row, i) => (
-              <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
-                <td style={{ ...tdRight, fontWeight: 700, fontSize: "14px" }} contentEditable suppressContentEditableWarning>{row.value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {(() => {
+        const phaseName = printCyclingDay?.phase === "high" ? "HIGH" : printCyclingDay?.phase === "medium" ? "MEDIUM" : printCyclingDay?.phase === "low" ? "LOW" : null;
+        const targetKcal   = printCyclingDay?.kcal    ?? result.der;
+        const targetPro    = printCyclingDay?.protein ?? result.protein;
+        const targetFat    = printCyclingDay?.fat     ?? result.fat;
+        const targetCarbs  = printCyclingDay?.carbs   ?? result.carbs;
+        return (
+          <div style={{ padding: "14px 40px 16px" }}>
+            <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
+              {phaseName ? `Mục tiêu dinh dưỡng (Ngày ${phaseName})` : "Mục tiêu dinh dưỡng hàng ngày"}
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Chỉ số</th>
+                  <th style={{ ...th, textAlign: "right" }}>Mục tiêu / ngày</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "DER (Calo mục tiêu)", value: `${targetKcal.toLocaleString("vi-VN")} kcal` },
+                  { label: "Protein", value: `${targetPro}g` },
+                  { label: "Fat", value: `${targetFat}g` },
+                  { label: "Carbs", value: `${targetCarbs}g` },
+                ].map((row, i) => (
+                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                    <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
+                    <td style={{ ...tdRight, fontWeight: 700, fontSize: "14px" }} contentEditable suppressContentEditableWarning>{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* ── AI Meal table ── */}
       {aiMeals && aiMeals.length > 0 && (
@@ -1204,6 +1216,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 noticeMethod={noticeMethod}
                 noticeWater={noticeWater}
                 noticeTips={noticeTips}
+                printCyclingDay={cyclingSchedule?.enabled ? cyclingSchedule.days[cyclingDayIdx] : null}
               />
             </div>
           </div>
