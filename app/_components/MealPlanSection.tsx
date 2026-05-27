@@ -282,31 +282,55 @@ function PrintPreview({
         </div>
       )}
 
-      {/* ── Nutrition targets ── */}
+      {/* ── Nutrition targets / Actual totals ── */}
       {(() => {
         const phaseName = printCyclingDay?.phase === "high" ? "HIGH" : printCyclingDay?.phase === "medium" ? "MEDIUM" : printCyclingDay?.phase === "low" ? "LOW" : null;
-        const targetKcal   = printCyclingDay?.kcal    ?? result.der;
-        const targetPro    = printCyclingDay?.protein ?? result.protein;
-        const targetFat    = printCyclingDay?.fat     ?? result.fat;
-        const targetCarbs  = printCyclingDay?.carbs   ?? result.carbs;
+
+        // ── Targets (PT-configured) ──
+        const targetKcal  = printCyclingDay?.kcal    ?? result.der;
+        const targetPro   = printCyclingDay?.protein ?? result.protein;
+        const targetFat   = printCyclingDay?.fat     ?? result.fat;
+        const targetCarbs = printCyclingDay?.carbs   ?? result.carbs;
+
+        // ── Actual totals: sum of ALL meal data (AI + manual) ──
+        // These are the same numbers shown in the "Tổng ngày" rows below,
+        // so the PDF is always internally consistent.
+        const actualCal   = Math.round((aiGrand?.cal ?? 0) + manualTotal.cal);
+        const actualPro   = Math.round((aiGrand?.p   ?? 0) + manualTotal.p);
+        const actualFat   = Math.round((aiGrand?.f   ?? 0) + manualTotal.f);
+        const actualCarbs = Math.round((aiGrand?.c   ?? 0) + manualTotal.c);
+        const hasActual   = actualCal > 0;
+
+        // Use actual data when meal plan exists (PDF mode), fallback to targets when empty
+        const displayKcal   = hasActual ? actualCal   : targetKcal;
+        const displayPro    = hasActual ? actualPro   : targetPro;
+        const displayFat    = hasActual ? actualFat   : targetFat;
+        const displayCarbs  = hasActual ? actualCarbs : targetCarbs;
+
+        const sectionTitle  = phaseName
+          ? `${hasActual ? "Tổng dinh dưỡng" : "Mục tiêu dinh dưỡng"} (Ngày ${phaseName})`
+          : hasActual ? "Tổng dinh dưỡng thực tế trong ngày" : "Mục tiêu dinh dưỡng hàng ngày";
+        const colHeader     = hasActual ? "Thực tế / ngày" : "Mục tiêu / ngày";
+        const calLabel      = hasActual ? "Tổng Calo" : "DER (Calo mục tiêu)";
+
         return (
           <div style={{ padding: "14px 40px 16px" }}>
             <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
-              {phaseName ? `Mục tiêu dinh dưỡng (Ngày ${phaseName})` : "Mục tiêu dinh dưỡng hàng ngày"}
+              {sectionTitle}
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
                   <th style={th}>Chỉ số</th>
-                  <th style={{ ...th, textAlign: "right" }}>Mục tiêu / ngày</th>
+                  <th style={{ ...th, textAlign: "right" }}>{colHeader}</th>
                 </tr>
               </thead>
               <tbody>
                 {[
-                  { label: "DER (Calo mục tiêu)", value: `${targetKcal.toLocaleString("vi-VN")} kcal` },
-                  { label: "Protein", value: `${targetPro}g` },
-                  { label: "Fat", value: `${targetFat}g` },
-                  { label: "Carbs", value: `${targetCarbs}g` },
+                  { label: calLabel, value: `${displayKcal.toLocaleString("vi-VN")} kcal` },
+                  { label: "Protein", value: `${displayPro}g` },
+                  { label: "Fat", value: `${displayFat}g` },
+                  { label: "Carbs", value: `${displayCarbs}g` },
                 ].map((row, i) => (
                   <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
                     <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
