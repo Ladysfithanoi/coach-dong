@@ -464,7 +464,7 @@ function IngredientSearchRow({
                   onMouseLeave={e => (e.currentTarget.style.background = "")}>
                   <span className="text-sm font-semibold" style={{ color: "#12100d" }}>{food.name}</span>
                   <span className="text-xs ml-2" style={{ color: "rgba(18,16,13,0.4)" }}>
-                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /100g
+                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /{food.tag === 'drink' ? '100ml' : '100g'}
                   </span>
                 </button>
               ))}
@@ -483,7 +483,7 @@ function IngredientSearchRow({
               if (isNaN(n) || n < 1) { setRawGrams("100"); onGramsChange(100); }
             }}
             className="dp-input text-center" style={{ width: "68px" }} />
-          <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>g</span>
+          <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>{row.food?.tag === 'drink' ? 'ml' : 'g'}</span>
         </div>
         {canRemove && (
           <button type="button" onClick={onRemove}
@@ -703,7 +703,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
       },
       { calories: 0, protein: 0, fat: 0, carbs: 0 }
     );
-    const ingredients = filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
+    const ingredients = filled.map(r => `${r.food.name} (${r.grams}${r.food.tag === 'drink' ? 'ml' : 'g'})`).join(" + ");
     const sourceRows = filled.map(r => ({ food: r.food, grams: r.grams }));
 
     if (editingMealId) {
