@@ -335,23 +335,25 @@ function PrintPreview({
         ];
 
         return (
-          <div style={{ padding: "18px 40px", display: "flex", flexWrap: "nowrap", alignItems: "flex-start", gap: "20px", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
+          <div style={{ padding: "18px 40px", display: "flex", alignItems: "flex-start", gap: "16px", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
 
-            {/* Base info: tên, mục tiêu, thông số */}
-            {baseItems.map(item => (
-              <div key={item.label} style={{ flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
-                  {item.label}
+            {/* ── Left: client profile — flex:1 so name can wrap and yield space ── */}
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexWrap: "wrap", gap: "8px 24px", alignItems: "flex-start" }}>
+              {baseItems.map(item => (
+                <div key={item.label} style={{ flexShrink: item.large ? 1 : 0, minWidth: 0 }}>
+                  <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
+                    {item.label}
+                  </div>
+                  <div contentEditable suppressContentEditableWarning
+                    style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none", whiteSpace: item.large ? "normal" : "nowrap", wordBreak: "break-word" }}>
+                    {item.value}
+                  </div>
                 </div>
-                <div contentEditable suppressContentEditableWarning
-                  style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none", whiteSpace: "nowrap" }}>
-                  {item.value}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
 
-            {/* ── Calorie block ── */}
-            <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: "40px", whiteSpace: "nowrap" }}>
+            {/* ── Right: calorie chips — flexShrink:0 so chips are never compressed ── */}
+            <div style={{ flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", gap: "24px" }}>
               {phaseVals ? (
                 /* ── 3 cột clickable LOW | MID | HIGH ── */
                 (([
@@ -425,13 +427,19 @@ function PrintPreview({
                 <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{result.weeklyLoss.toFixed(2)}</div>
                 <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kg</div>
               </div>
-              {result.tdee > (printCyclingDay?.kcal ?? result.der) && (
-                <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", minWidth: "100px" }}>
-                  <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Thâm hụt / ngày</div>
-                  <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{Math.round(result.tdee - (printCyclingDay?.kcal ?? result.der)).toLocaleString("vi-VN")}</div>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kcal</div>
-                </div>
-              )}
+              {(() => {
+                // Dynamic: use the currently selected phase's kcal target
+                const activeKcal = phaseVals ? phaseVals[activePhase].kcal : (printCyclingDay?.kcal ?? result.der);
+                const deficit    = Math.round(result.tdee - activeKcal);
+                if (deficit <= 0) return null;
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", minWidth: "100px" }}>
+                    <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Thâm hụt / ngày</div>
+                    <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{deficit.toLocaleString("vi-VN")}</div>
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kcal</div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
