@@ -29,6 +29,8 @@ interface ManualFood {
 type Tab = "ai" | "manual";
 type MealCount = 2 | 3 | 4 | 5;
 type PhaseKey = "low" | "medium" | "high";
+/** ManualFood extended with per-cell rich-HTML snapshot (print-preview only) */
+type PrintFood = ManualFood & { richHtml: string };
 
 interface IngredientRow {
   id: string;
@@ -245,6 +247,118 @@ function RichToolbar() {
   );
 }
 
+// ─── FoodNameCell: rich-text editable name + DB search in one cell ───────────
+// • Renders a [data-rt] contentEditable div (rich-text toolbar activates on selection)
+// • When hovering the parent row, a 🔍 icon appears (no-print)
+// • Clicking 🔍 opens a DB search dropdown; picking a food:
+//   - preserves any bold/italic/color wrapping the coach applied (text-replace in innerHTML)
+//   - calls onFoodPicked so the parent can update macros
+// • All interactive chrome is hidden on @media print
+
+interface FoodNameCellProps {
+  richHtml: string;
+  isHovered: boolean;
+  onFoodPicked: (food: FoodItem, newHtml: string) => void;
+}
+
+function FoodNameCell({ richHtml, isHovered, onFoodPicked }: FoodNameCellProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const prevRef = useRef(richHtml);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const results = query.trim() ? searchFoods(query) : [];
+
+  // Set innerHTML on mount (avoids dangerouslySetInnerHTML + contentEditable conflict)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (ref.current) { ref.current.innerHTML = richHtml; prevRef.current = richHtml; }
+  }, []);
+
+  // Sync from parent when richHtml prop changes (i.e. after a food pick)
+  useEffect(() => {
+    if (richHtml !== prevRef.current && ref.current && document.activeElement !== ref.current) {
+      ref.current.innerHTML = richHtml;
+      prevRef.current = richHtml;
+    }
+  }, [richHtml]);
+
+  const handlePick = (food: FoodItem) => {
+    const curHtml = ref.current?.innerHTML ?? "";
+    const curText = (ref.current?.textContent ?? "").trim();
+    let newHtml = food.name;
+    // Preserve existing rich-text wrapper tags: replace only the text node content
+    if (curText && curHtml !== curText) {
+      try {
+        const esc = curText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const replaced = curHtml.replace(new RegExp(esc), food.name);
+        if (replaced !== curHtml) newHtml = replaced;
+      } catch { /* fall back to plain name */ }
+    }
+    setSearchOpen(false);
+    setQuery("");
+    onFoodPicked(food, newHtml);
+  };
+
+  const openSearch = () => { setSearchOpen(true); setQuery(""); };
+
+  return (
+    <>
+      {/* Editable name (rich-text, always visible including in print) */}
+      <div
+        ref={ref}
+        data-rt
+        contentEditable
+        suppressContentEditableWarning
+        style={{ outline: "none", minHeight: "1em", paddingRight: isHovered ? "46px" : undefined }}
+      />
+
+      {/* Search icon – no-print, shown on row hover */}
+      {isHovered && (
+        <button
+          className="no-print"
+          onClick={openSearch}
+          title="Tìm trong database thực phẩm"
+          style={{ position: "absolute", top: "50%", right: "26px", transform: "translateY(-50%)", background: "rgba(26,109,212,0.12)", border: "none", color: "#1a6dd4", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          🔍
+        </button>
+      )}
+
+      {/* Search dropdown – no-print, absolutely positioned below the cell */}
+      {searchOpen && (
+        <div
+          className="no-print"
+          style={{ position: "absolute", left: 0, top: "calc(100% + 2px)", zIndex: 9999, width: "300px", background: "#fff", borderRadius: "10px", boxShadow: "0 8px 28px rgba(0,0,0,0.18)", border: "1px solid rgba(18,16,13,0.08)", overflow: "hidden" }}>
+          <input
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === "Escape" && setSearchOpen(false)}
+            placeholder="Tìm thực phẩm trong database..."
+            style={{ display: "block", width: "100%", padding: "9px 12px", border: "none", borderBottom: "1px solid rgba(18,16,13,0.07)", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
+          />
+          {results.slice(0, 7).map(f => (
+            <button
+              key={f.name}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); handlePick(f); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "none", cursor: "pointer", borderBottom: "1px solid rgba(18,16,13,0.04)" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(235,9,21,0.045)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "")}>
+              <div style={{ fontWeight: 600, fontSize: "12px", color: "#12100d" }}>{f.name}</div>
+              <div style={{ fontSize: "10px", color: "rgba(18,16,13,0.4)", marginTop: "1px" }}>
+                {f.calories} kcal · P:{f.protein}g · F:{f.fat}g · C:{f.carbs}g /{f.tag === "drink" ? "100ml" : "100g"}
+              </div>
+            </button>
+          ))}
+          {query.trim() && results.length === 0 && (
+            <div style={{ padding: "10px 12px", fontSize: "12px", color: "rgba(18,16,13,0.38)" }}>Không tìm thấy kết quả</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 function PrintPreview({
@@ -290,7 +404,9 @@ function PrintPreview({
 
   // ── Local meal lists (supports in-preview delete) ──────────────────────────
   const [localAiMeals, setLocalAiMeals] = useState<AiMeal[]>(() => aiMeals ?? []);
-  const [localManualFoods, setLocalManualFoods] = useState<ManualFood[]>(() => [...manualFoods]);
+  const [localManualFoods, setLocalManualFoods] = useState<PrintFood[]>(() =>
+    manualFoods.map(f => ({ ...f, richHtml: f.name }))
+  );
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   const hasNotice = noticeMethod || noticeWater || noticeTips;
@@ -628,15 +744,33 @@ function PrintPreview({
                   <tr key={food.id}
                     style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}
                     onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}>
+
+                    {/* ── Name cell: FoodNameCell (rich-text + DB search) ── */}
                     <td style={{ ...td, position: "relative" }}>
-                      <div data-rt contentEditable suppressContentEditableWarning style={{ outline: "none" }}>{food.name}</div>
+                      <FoodNameCell
+                        richHtml={food.richHtml}
+                        isHovered={isHov}
+                        onFoodPicked={(pickedFood, newHtml) => {
+                          // Compute macros for 100g default (same as computeRowMacros)
+                          const macros = computeRowMacros(pickedFood, 100);
+                          setLocalManualFoods(prev => prev.map(f =>
+                            f.id === food.id
+                              ? { ...f, name: pickedFood.name, richHtml: newHtml, ...macros }
+                              : f
+                          ));
+                        }}
+                      />
+                      {/* Delete button – no-print */}
                       {isHov && (
-                        <button className="no-print" onMouseDown={e => { e.preventDefault(); setLocalManualFoods(prev => prev.filter(f => f.id !== food.id)); }}
+                        <button className="no-print"
+                          onMouseDown={e => { e.preventDefault(); setLocalManualFoods(prev => prev.filter(f => f.id !== food.id)); }}
                           style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                           ×
                         </button>
                       )}
                     </td>
+
+                    {/* ── Macro cells: locked (auto-updated from state) ── */}
                     <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(food.calories)}</td>
                     <td style={tdCenter}>{Math.round(food.protein)}</td>
                     <td style={tdCenter}>{Math.round(food.fat)}</td>
