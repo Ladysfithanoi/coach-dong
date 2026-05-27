@@ -213,7 +213,7 @@ function PrintPreview({
 
       {/* ── Client info ── */}
       {(() => {
-        const RED = "#eb0915";
+        const LABEL_COLOR = "rgba(18,16,13,0.38)";
         const baseItems = [
           { label: "Khách hàng", value: result.name, large: true },
           { label: "Mục tiêu", value: GOAL_LABEL_PDF[result.weightGoal] ?? result.weightGoal },
@@ -221,86 +221,54 @@ function PrintPreview({
         ];
 
         return (
-          <div style={{ padding: "18px 40px", display: "flex", gap: "20px", flexWrap: "wrap", alignItems: "flex-start", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
+          <div style={{ padding: "18px 40px", display: "flex", flexWrap: "nowrap", alignItems: "flex-start", gap: "20px", borderBottom: "1px solid rgba(18,16,13,0.08)" }}>
 
             {/* Base info: tên, mục tiêu, thông số */}
             {baseItems.map(item => (
               <div key={item.label} style={{ flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
+                <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
                   {item.label}
                 </div>
                 <div contentEditable suppressContentEditableWarning
-                  style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none" }}>
+                  style={{ fontSize: item.large ? "18px" : "13px", fontWeight: item.large ? 800 : 600, outline: "none", whiteSpace: "nowrap" }}>
                   {item.value}
                 </div>
               </div>
             ))}
 
-            {/* ── Calorie block: 3-col cycling (LOW|MID|HIGH) or single DER ── */}
-            {cyclingSchedule ? (
-              /* ── CYCLING MODE: bộ 3 cột LOW | MID | HIGH ── */
-              <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "stretch",
-                            borderRadius: "8px", overflow: "hidden",
-                            border: "1px solid rgba(18,16,13,0.12)" }}>
-                {(["low", "medium", "high"] as const).map((phase, idx) => {
-                  const kcal   = phase === "high"   ? cyclingSchedule.highCalKcal
-                               : phase === "medium" ? cyclingSchedule.medCalKcal
-                               :                     cyclingSchedule.lowCalKcal;
-                  const isActive = printCyclingDay?.phase === phase;
-                  const label    = phase === "high" ? "HIGH" : phase === "medium" ? "MID" : "LOW";
-                  const phaseColor = phase === "high" ? RED : phase === "medium" ? "#d97706" : "#3b82f6";
-                  return (
-                    <div key={phase} style={{
-                      padding: "10px 16px",
-                      textAlign: "center",
-                      minWidth: "76px",
-                      borderRight: idx < 2 ? "1px solid rgba(18,16,13,0.08)" : "none",
-                      background: isActive ? `rgba(${phase === "high" ? "235,9,21" : phase === "medium" ? "217,119,6" : "59,130,246"},0.07)` : "transparent",
-                    }}>
-                      {/* Label */}
-                      <div style={{
-                        fontSize: "8px", fontWeight: 700, textTransform: "uppercase",
-                        letterSpacing: "0.09em", marginBottom: "5px",
-                        color: isActive ? phaseColor : "rgba(18,16,13,0.35)",
-                      }}>
-                        Calo {label}
+            {/* ── Calorie block ── */}
+            <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: "40px", whiteSpace: "nowrap" }}>
+              {cyclingSchedule ? (
+                /* ── 3 cột tĩnh LOW | MID | HIGH ── */
+                <>
+                  {([
+                    { label: "Calo (Low)",  kcal: cyclingSchedule.lowCalKcal  },
+                    { label: "Calo (Mid)",  kcal: cyclingSchedule.medCalKcal  },
+                    { label: "Calo (High)", kcal: cyclingSchedule.highCalKcal },
+                  ] as const).map(col => (
+                    <div key={col.label} style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>
+                        {col.label}
                       </div>
-                      {/* Value */}
-                      <div style={{
-                        fontSize: "15px", fontWeight: 900, lineHeight: 1,
-                        color: isActive ? phaseColor : "#12100d",
-                      }}>
-                        {kcal > 0 ? kcal.toLocaleString("vi-VN") : "—"}
+                      <div style={{ fontSize: "14px", fontWeight: 800, color: "#12100d", lineHeight: 1 }}>
+                        {col.kcal > 0 ? col.kcal.toLocaleString("vi-VN") : "—"}
                       </div>
-                      {/* Unit */}
-                      <div style={{
-                        fontSize: "9px", fontWeight: 600, marginTop: "3px",
-                        color: isActive ? phaseColor : "rgba(18,16,13,0.35)",
-                      }}>
-                        kcal
-                      </div>
-                      {/* Active indicator dot */}
-                      {isActive && (
-                        <div style={{
-                          width: "5px", height: "5px", borderRadius: "50%",
-                          background: phaseColor, margin: "5px auto 0",
-                        }} />
-                      )}
+                      <div style={{ fontSize: "9px", color: LABEL_COLOR, marginTop: "2px" }}>kcal</div>
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* ── SINGLE DER MODE (no cycling) ── */
-              <div style={{ marginLeft: "auto", flexShrink: 0 }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
-                  DER (Calo/ngày)
+                  ))}
+                </>
+              ) : (
+                /* ── DER đơn (không có cycling) ── */
+                <div>
+                  <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "3px" }}>
+                    DER (Calo/ngày)
+                  </div>
+                  <div contentEditable suppressContentEditableWarning style={{ fontSize: "13px", fontWeight: 600, outline: "none" }}>
+                    {result.der.toLocaleString("vi-VN")} kcal
+                  </div>
                 </div>
-                <div contentEditable suppressContentEditableWarning style={{ fontSize: "13px", fontWeight: 600, outline: "none" }}>
-                  {result.der.toLocaleString("vi-VN")} kcal
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
           </div>
         );
