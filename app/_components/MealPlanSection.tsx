@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { NutritionResult, CyclingSchedule } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
@@ -28,6 +28,9 @@ interface ManualFood {
 
 type Tab = "ai" | "manual";
 type MealCount = 2 | 3 | 4 | 5;
+type PhaseKey = "low" | "medium" | "high";
+type MacroKey = "kcal" | "protein" | "fat" | "carbs";
+type PhaseVals = Record<PhaseKey, Record<MacroKey, number>>;
 
 interface IngredientRow {
   id: string;
@@ -154,6 +157,40 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
   );
 }
 
+// ─── SyncCell: contentEditable div that stays in sync with shared phaseVals state ──
+function SyncCell({ value, onCommit, style }: {
+  value: string;
+  onCommit?: (rawText: string) => void;
+  style?: React.CSSProperties;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const prevRef = useRef(value);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (prevRef.current !== value && document.activeElement !== ref.current) {
+      ref.current.textContent = value;
+      prevRef.current = value;
+    }
+  }, [value]);
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      style={{ outline: "none", ...style }}
+      onBlur={(e) => {
+        const text = e.currentTarget.textContent ?? "";
+        prevRef.current = text;
+        onCommit?.(text);
+      }}
+    >
+      {value}
+    </div>
+  );
+}
+
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 function PrintPreview({
@@ -182,6 +219,26 @@ function PrintPreview({
     ? aiMeals.reduce((a, m) => ({ cal: a.cal + m.calories, p: a.p + m.protein, f: a.f + m.fat, c: a.c + m.carbs }), { cal: 0, p: 0, f: 0, c: 0 })
     : null;
   const manualTotal = manualFoods.reduce((a, f) => ({ cal: a.cal + f.calories, p: a.p + f.protein, f: a.f + f.fat, c: a.c + f.carbs }), { cal: 0, p: 0, f: 0, c: 0 });
+
+  // ── Per-phase editable targets (cycling mode) ──────────────────────────────
+  const [phaseVals, setPhaseVals] = useState<PhaseVals | null>(() => {
+    if (!cyclingSchedule) return null;
+    const findDay = (p: PhaseKey) => cyclingSchedule.days.find(d => d.phase === p);
+    const lowD    = findDay("low");
+    const medD    = findDay("medium");
+    const highD   = findDay("high");
+    return {
+      low:    { kcal: cyclingSchedule.lowCalKcal,  protein: lowD?.protein  ?? result.protein, fat: lowD?.fat  ?? result.fat, carbs: lowD?.carbs  ?? result.carbs },
+      medium: { kcal: cyclingSchedule.medCalKcal,  protein: medD?.protein  ?? result.protein, fat: medD?.fat  ?? result.fat, carbs: medD?.carbs  ?? result.carbs },
+      high:   { kcal: cyclingSchedule.highCalKcal, protein: highD?.protein ?? result.protein, fat: highD?.fat ?? result.fat, carbs: highD?.carbs ?? result.carbs },
+    };
+  });
+  const updatePhaseVal = useCallback((phase: PhaseKey, key: MacroKey, rawText: string) => {
+    const num = parseInt(rawText.replace(/\D/g, ""), 10) || 0;
+    setPhaseVals(prev => prev ? { ...prev, [phase]: { ...prev[phase], [key]: num } } : prev);
+  }, []);
+  const activePhase: PhaseKey | null = printCyclingDay?.phase ?? null;
+
   const hasNotice = noticeMethod || noticeWater || noticeTips;
 
   return (
@@ -238,25 +295,25 @@ function PrintPreview({
 
             {/* ── Calorie block ── */}
             <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: "40px", whiteSpace: "nowrap" }}>
-              {cyclingSchedule ? (
-                /* ── 3 cột tĩnh LOW | MID | HIGH ── */
-                <>
-                  {([
-                    { label: "Calo (Low)",  kcal: cyclingSchedule.lowCalKcal  },
-                    { label: "Calo (Mid)",  kcal: cyclingSchedule.medCalKcal  },
-                    { label: "Calo (High)", kcal: cyclingSchedule.highCalKcal },
-                  ] as const).map(col => (
-                    <div key={col.label} style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>
-                        {col.label}
-                      </div>
-                      <div style={{ fontSize: "14px", fontWeight: 800, color: "#12100d", lineHeight: 1 }}>
-                        {col.kcal > 0 ? col.kcal.toLocaleString("vi-VN") : "—"}
-                      </div>
-                      <div style={{ fontSize: "9px", color: LABEL_COLOR, marginTop: "2px" }}>kcal</div>
+              {phaseVals ? (
+                /* ── 3 cột SYNC LOW | MID | HIGH ── */
+                (([
+                  { label: "Calo (Low)",  phase: "low"    as PhaseKey },
+                  { label: "Calo (Mid)",  phase: "medium" as PhaseKey },
+                  { label: "Calo (High)", phase: "high"   as PhaseKey },
+                ]).map(col => (
+                  <div key={col.label} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>
+                      {col.label}
                     </div>
-                  ))}
-                </>
+                    <SyncCell
+                      value={phaseVals[col.phase].kcal > 0 ? phaseVals[col.phase].kcal.toLocaleString("vi-VN") : "—"}
+                      onCommit={text => updatePhaseVal(col.phase, "kcal", text)}
+                      style={{ fontSize: "14px", fontWeight: 800, color: "#12100d", lineHeight: "1" }}
+                    />
+                    <div style={{ fontSize: "9px", color: LABEL_COLOR, marginTop: "2px" }}>kcal</div>
+                  </div>
+                )))
               ) : (
                 /* ── DER đơn (không có cycling) ── */
                 <div>
@@ -321,66 +378,107 @@ function PrintPreview({
         </div>
       )}
 
-      {/* ── Nutrition targets / Actual totals ── */}
-      {(() => {
-        const phaseName = printCyclingDay?.phase === "high" ? "HIGH" : printCyclingDay?.phase === "medium" ? "MEDIUM" : printCyclingDay?.phase === "low" ? "LOW" : null;
-
-        // ── Targets (PT-configured) ──
-        const targetKcal  = printCyclingDay?.kcal    ?? result.der;
-        const targetPro   = printCyclingDay?.protein ?? result.protein;
-        const targetFat   = printCyclingDay?.fat     ?? result.fat;
-        const targetCarbs = printCyclingDay?.carbs   ?? result.carbs;
-
-        // ── Actual totals: sum of ALL meal data (AI + manual) ──
-        // These are the same numbers shown in the "Tổng ngày" rows below,
-        // so the PDF is always internally consistent.
-        const actualCal   = Math.round((aiGrand?.cal ?? 0) + manualTotal.cal);
-        const actualPro   = Math.round((aiGrand?.p   ?? 0) + manualTotal.p);
-        const actualFat   = Math.round((aiGrand?.f   ?? 0) + manualTotal.f);
-        const actualCarbs = Math.round((aiGrand?.c   ?? 0) + manualTotal.c);
-        const hasActual   = actualCal > 0;
-
-        // Use actual data when meal plan exists (PDF mode), fallback to targets when empty
-        const displayKcal   = hasActual ? actualCal   : targetKcal;
-        const displayPro    = hasActual ? actualPro   : targetPro;
-        const displayFat    = hasActual ? actualFat   : targetFat;
-        const displayCarbs  = hasActual ? actualCarbs : targetCarbs;
-
-        const sectionTitle  = phaseName
-          ? `${hasActual ? "Tổng dinh dưỡng" : "Mục tiêu dinh dưỡng"} (Ngày ${phaseName})`
-          : hasActual ? "Tổng dinh dưỡng thực tế trong ngày" : "Mục tiêu dinh dưỡng hàng ngày";
-        const colHeader     = hasActual ? "Thực tế / ngày" : "Mục tiêu / ngày";
-        const calLabel      = hasActual ? "Tổng Calo" : "DER (Calo mục tiêu)";
-
-        return (
-          <div style={{ padding: "14px 40px 16px" }}>
-            <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
-              {sectionTitle}
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Chỉ số</th>
-                  <th style={{ ...th, textAlign: "right" }}>{colHeader}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { label: calLabel, value: `${displayKcal.toLocaleString("vi-VN")} kcal` },
-                  { label: "Protein", value: `${displayPro}g` },
-                  { label: "Fat", value: `${displayFat}g` },
-                  { label: "Carbs", value: `${displayCarbs}g` },
-                ].map((row, i) => (
-                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                    <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
-                    <td style={{ ...tdRight, fontWeight: 700, fontSize: "14px" }} contentEditable suppressContentEditableWarning>{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* ── Nutrition targets table ── */}
+      {phaseVals ? (
+        /* ── Cycling: 4-column table with active-phase highlight ── */
+        <div style={{ padding: "14px 40px 16px" }}>
+          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
+            Tổng dinh dưỡng
           </div>
-        );
-      })()}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <colgroup>
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "24%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={th}>Chỉ số</th>
+                {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
+                  const isActive = phase === activePhase;
+                  return (
+                    <th key={phase} style={{ ...th, textAlign: "center", background: isActive ? "#eb0915" : "#3a3a3a" }}>
+                      {phase === "low" ? "Low" : phase === "medium" ? "Medium" : "High"}
+                      {isActive && (
+                        <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#fff", marginLeft: "5px", verticalAlign: "middle" }} />
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                { key: "kcal"    as MacroKey, label: "Calo",    unit: " kcal" },
+                { key: "protein" as MacroKey, label: "Protein", unit: "g"     },
+                { key: "fat"     as MacroKey, label: "Fat",     unit: "g"     },
+                { key: "carbs"   as MacroKey, label: "Carbs",   unit: "g"     },
+              ]).map(({ key, label, unit }, i) => (
+                <tr key={key} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                  <td style={td}>{label}</td>
+                  {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
+                    const isActive  = phase === activePhase;
+                    const dispVal   = phaseVals[phase][key].toLocaleString("vi-VN");
+                    return (
+                      <td key={phase} style={{ ...tdRight, fontWeight: 700, fontSize: "14px", background: isActive ? "rgba(235,9,21,0.06)" : undefined }}>
+                        <SyncCell
+                          value={`${dispVal}${unit}`}
+                          onCommit={text => updatePhaseVal(phase, key, text)}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* ── Non-cycling: simple 2-column table ── */
+        (() => {
+          const actualCal   = Math.round((aiGrand?.cal ?? 0) + manualTotal.cal);
+          const actualPro   = Math.round((aiGrand?.p   ?? 0) + manualTotal.p);
+          const actualFat   = Math.round((aiGrand?.f   ?? 0) + manualTotal.f);
+          const actualCarbs = Math.round((aiGrand?.c   ?? 0) + manualTotal.c);
+          const hasActual   = actualCal > 0;
+          const displayKcal  = hasActual ? actualCal   : result.der;
+          const displayPro   = hasActual ? actualPro   : result.protein;
+          const displayFat   = hasActual ? actualFat   : result.fat;
+          const displayCarbs = hasActual ? actualCarbs : result.carbs;
+          const sectionTitle = hasActual ? "Tổng dinh dưỡng thực tế trong ngày" : "Mục tiêu dinh dưỡng hàng ngày";
+          const colHeader    = hasActual ? "Thực tế / ngày" : "Mục tiêu / ngày";
+          const calLabel     = hasActual ? "Tổng Calo" : "DER (Calo mục tiêu)";
+          return (
+            <div style={{ padding: "14px 40px 16px" }}>
+              <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
+                {sectionTitle}
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Chỉ số</th>
+                    <th style={{ ...th, textAlign: "right" }}>{colHeader}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: calLabel,    value: `${displayKcal.toLocaleString("vi-VN")} kcal` },
+                    { label: "Protein",   value: `${displayPro}g`   },
+                    { label: "Fat",       value: `${displayFat}g`   },
+                    { label: "Carbs",     value: `${displayCarbs}g` },
+                  ].map((row, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                      <td style={td} contentEditable suppressContentEditableWarning>{row.label}</td>
+                      <td style={{ ...tdRight, fontWeight: 700, fontSize: "14px" }} contentEditable suppressContentEditableWarning>{row.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()
+      )}
 
       {/* ── AI Meal table ── */}
       {aiMeals && aiMeals.length > 0 && (
