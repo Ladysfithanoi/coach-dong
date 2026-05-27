@@ -29,8 +29,6 @@ interface ManualFood {
 type Tab = "ai" | "manual";
 type MealCount = 2 | 3 | 4 | 5;
 type PhaseKey = "low" | "medium" | "high";
-type MacroKey = "kcal" | "protein" | "fat" | "carbs";
-type PhaseVals = Record<PhaseKey, Record<MacroKey, number>>;
 
 interface IngredientRow {
   id: string;
@@ -157,37 +155,93 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
   );
 }
 
-// ─── SyncCell: contentEditable div that stays in sync with shared phaseVals state ──
-function SyncCell({ value, onCommit, style }: {
-  value: string;
-  onCommit?: (rawText: string) => void;
-  style?: React.CSSProperties;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const prevRef = useRef(value);
+// ─── Rich-text toolbar (floating, portal) ────────────────────────────────────
+
+const RT_EMOJIS = ["🥗","🥩","🍗","🐟","🥚","🧀","🥑","🍎","🥦","🥕","🍚","🍞","🥜","🥛","☕","💪","🏃","🔥","✅","⭐","❤️","😊"];
+const RT_COLORS = ["#12100d","#eb0915","#1a6dd4","#16a34a","#d97706","#7c3aed","#db2777","#0891b2","#ffffff"];
+
+function RtBtn({ title, onCmd, children }: { title: string; onCmd: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      title={title}
+      className="no-print"
+      onMouseDown={(e) => { e.preventDefault(); onCmd(); }}
+      style={{ background: "none", border: "none", color: "#fff", padding: "3px 7px", borderRadius: "4px", cursor: "pointer", fontSize: "13px", fontWeight: 700, lineHeight: 1, fontFamily: "sans-serif" }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "none")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RichToolbar() {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [showColor, setShowColor] = useState(false);
 
   useEffect(() => {
-    if (!ref.current) return;
-    if (prevRef.current !== value && document.activeElement !== ref.current) {
-      ref.current.textContent = value;
-      prevRef.current = value;
-    }
-  }, [value]);
+    const handler = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { setPos(null); return; }
+      const anchor = sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement;
+      if (!anchor?.closest("[data-rt]")) { setPos(null); return; }
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      setPos({ top: rect.top + window.scrollY - 46, left: Math.max(4, rect.left + window.scrollX) });
+    };
+    document.addEventListener("selectionchange", handler);
+    return () => document.removeEventListener("selectionchange", handler);
+  }, []);
 
-  return (
+  const exec = (cmd: string, val?: string) => document.execCommand(cmd, false, val);
+
+  if (!pos) return null;
+  return createPortal(
     <div
-      ref={ref}
-      contentEditable
-      suppressContentEditableWarning
-      style={{ outline: "none", ...style }}
-      onBlur={(e) => {
-        const text = e.currentTarget.textContent ?? "";
-        prevRef.current = text;
-        onCommit?.(text);
-      }}
+      className="no-print"
+      style={{ position: "absolute", top: pos.top, left: pos.left, zIndex: 99999, background: "#1c1c1e", borderRadius: "8px", display: "flex", alignItems: "center", gap: "1px", padding: "4px 6px", boxShadow: "0 4px 20px rgba(0,0,0,0.4)", userSelect: "none" }}
+      onMouseDown={e => e.preventDefault()}
     >
-      {value}
-    </div>
+      <RtBtn title="Bold" onCmd={() => exec("bold")}><b>B</b></RtBtn>
+      <RtBtn title="Italic" onCmd={() => exec("italic")}><i>I</i></RtBtn>
+      <RtBtn title="Underline" onCmd={() => exec("underline")}><u>U</u></RtBtn>
+      <RtBtn title="Strikethrough" onCmd={() => exec("strikeThrough")}><s>S</s></RtBtn>
+      <div style={{ width: "1px", height: "16px", background: "rgba(255,255,255,0.2)", margin: "0 3px" }} />
+      {/* Color picker */}
+      <div style={{ position: "relative" }}>
+        <RtBtn title="Màu chữ" onCmd={() => { setShowColor(v => !v); setShowEmoji(false); }}>
+          <span style={{ borderBottom: "3px solid #eb0915" }}>A</span>
+        </RtBtn>
+        {showColor && (
+          <div onMouseDown={e => e.preventDefault()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: "#fff", borderRadius: "8px", padding: "8px", display: "flex", flexWrap: "wrap", gap: "5px", width: "116px", boxShadow: "0 4px 12px rgba(0,0,0,0.2)", zIndex: 1 }}>
+            {RT_COLORS.map(c => (
+              <div key={c} onMouseDown={e => { e.preventDefault(); exec("foreColor", c); setShowColor(false); }}
+                style={{ width: "18px", height: "18px", borderRadius: "50%", background: c, cursor: "pointer", border: c === "#ffffff" ? "1px solid #ccc" : "2px solid transparent", outline: "2px solid transparent", transition: "outline 0.1s" }}
+                onMouseEnter={e => ((e.currentTarget as HTMLDivElement).style.outline = `2px solid ${c}`)}
+                onMouseLeave={e => ((e.currentTarget as HTMLDivElement).style.outline = "2px solid transparent")}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ width: "1px", height: "16px", background: "rgba(255,255,255,0.2)", margin: "0 3px" }} />
+      {/* Emoji picker */}
+      <div style={{ position: "relative" }}>
+        <RtBtn title="Emoji" onCmd={() => { setShowEmoji(v => !v); setShowColor(false); }}>😊</RtBtn>
+        {showEmoji && (
+          <div onMouseDown={e => e.preventDefault()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: "#fff", borderRadius: "8px", padding: "8px", display: "flex", flexWrap: "wrap", gap: "3px", width: "196px", boxShadow: "0 4px 12px rgba(0,0,0,0.2)", zIndex: 1 }}>
+            {RT_EMOJIS.map(em => (
+              <span key={em} onMouseDown={e => { e.preventDefault(); exec("insertText", em); setShowEmoji(false); }}
+                style={{ fontSize: "18px", cursor: "pointer", padding: "2px 3px", borderRadius: "4px", lineHeight: 1 }}
+                onMouseEnter={e => ((e.currentTarget as HTMLSpanElement).style.background = "rgba(0,0,0,0.07)")}
+                onMouseLeave={e => ((e.currentTarget as HTMLSpanElement).style.background = "")}
+              >{em}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -220,29 +274,32 @@ function PrintPreview({
     : null;
   const manualTotal = manualFoods.reduce((a, f) => ({ cal: a.cal + f.calories, p: a.p + f.protein, f: a.f + f.fat, c: a.c + f.carbs }), { cal: 0, p: 0, f: 0, c: 0 });
 
-  // ── Per-phase editable targets (cycling mode) ──────────────────────────────
-  const [phaseVals, setPhaseVals] = useState<PhaseVals | null>(() => {
-    if (!cyclingSchedule) return null;
-    const findDay = (p: PhaseKey) => cyclingSchedule.days.find(d => d.phase === p);
-    const lowD    = findDay("low");
-    const medD    = findDay("medium");
-    const highD   = findDay("high");
+  // ── Cycling phase data (read-only, locked) ─────────────────────────────────
+  const phaseVals = cyclingSchedule ? (() => {
+    const fd = (p: PhaseKey) => cyclingSchedule.days.find(d => d.phase === p);
+    const lo = fd("low"); const me = fd("medium"); const hi = fd("high");
     return {
-      low:    { kcal: cyclingSchedule.lowCalKcal,  protein: lowD?.protein  ?? result.protein, fat: lowD?.fat  ?? result.fat, carbs: lowD?.carbs  ?? result.carbs },
-      medium: { kcal: cyclingSchedule.medCalKcal,  protein: medD?.protein  ?? result.protein, fat: medD?.fat  ?? result.fat, carbs: medD?.carbs  ?? result.carbs },
-      high:   { kcal: cyclingSchedule.highCalKcal, protein: highD?.protein ?? result.protein, fat: highD?.fat ?? result.fat, carbs: highD?.carbs ?? result.carbs },
+      low:    { kcal: cyclingSchedule.lowCalKcal,  protein: lo?.protein ?? result.protein, fat: lo?.fat ?? result.fat, carbs: lo?.carbs ?? result.carbs },
+      medium: { kcal: cyclingSchedule.medCalKcal,  protein: me?.protein ?? result.protein, fat: me?.fat ?? result.fat, carbs: me?.carbs ?? result.carbs },
+      high:   { kcal: cyclingSchedule.highCalKcal, protein: hi?.protein ?? result.protein, fat: hi?.fat ?? result.fat, carbs: hi?.carbs ?? result.carbs },
     };
-  });
-  const updatePhaseVal = useCallback((phase: PhaseKey, key: MacroKey, rawText: string) => {
-    const num = parseInt(rawText.replace(/\D/g, ""), 10) || 0;
-    setPhaseVals(prev => prev ? { ...prev, [phase]: { ...prev[phase], [key]: num } } : prev);
-  }, []);
-  const activePhase: PhaseKey | null = printCyclingDay?.phase ?? null;
+  })() : null;
+
+  // ── Interactive active-phase selection ─────────────────────────────────────
+  const [activePhase, setActivePhase] = useState<PhaseKey>(printCyclingDay?.phase ?? "medium");
+
+  // ── Local meal lists (supports in-preview delete) ──────────────────────────
+  const [localAiMeals, setLocalAiMeals] = useState<AiMeal[]>(() => aiMeals ?? []);
+  const [localManualFoods, setLocalManualFoods] = useState<ManualFood[]>(() => [...manualFoods]);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   const hasNotice = noticeMethod || noticeWater || noticeTips;
 
   return (
     <div style={{ background: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", color: "#12100d" }}>
+
+      {/* ── Rich-text floating toolbar (no-print, activates on text selection inside data-rt) ── */}
+      <RichToolbar />
 
       {/* ── Logo + date row ── */}
       <div style={{ padding: "20px 40px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -296,24 +353,26 @@ function PrintPreview({
             {/* ── Calorie block ── */}
             <div style={{ marginLeft: "auto", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "flex-end", gap: "40px", whiteSpace: "nowrap" }}>
               {phaseVals ? (
-                /* ── 3 cột SYNC LOW | MID | HIGH ── */
+                /* ── 3 cột clickable LOW | MID | HIGH ── */
                 (([
                   { label: "Calo (Low)",  phase: "low"    as PhaseKey },
                   { label: "Calo (Mid)",  phase: "medium" as PhaseKey },
                   { label: "Calo (High)", phase: "high"   as PhaseKey },
-                ]).map(col => (
-                  <div key={col.label} style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "9px", color: LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>
-                      {col.label}
+                ]).map(col => {
+                  const isA = col.phase === activePhase;
+                  return (
+                    <div key={col.label} onClick={() => setActivePhase(col.phase)}
+                      style={{ textAlign: "center", cursor: "pointer", padding: "6px 10px", borderRadius: "8px", border: isA ? "1.5px solid #eb0915" : "1.5px solid transparent", background: isA ? "rgba(235,9,21,0.05)" : "transparent", transition: "all 0.18s" }}>
+                      <div style={{ fontSize: "9px", color: isA ? "#eb0915" : LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px", fontWeight: isA ? 700 : 400 }}>
+                        {col.label}
+                      </div>
+                      <div style={{ fontSize: "14px", fontWeight: 800, color: isA ? "#eb0915" : "#12100d", lineHeight: 1 }}>
+                        {phaseVals[col.phase].kcal > 0 ? phaseVals[col.phase].kcal.toLocaleString("vi-VN") : "—"}
+                      </div>
+                      <div style={{ fontSize: "9px", color: isA ? "#eb0915" : LABEL_COLOR, marginTop: "2px" }}>kcal</div>
                     </div>
-                    <SyncCell
-                      value={phaseVals[col.phase].kcal > 0 ? phaseVals[col.phase].kcal.toLocaleString("vi-VN") : "—"}
-                      onCommit={text => updatePhaseVal(col.phase, "kcal", text)}
-                      style={{ fontSize: "14px", fontWeight: 800, color: "#12100d", lineHeight: "1" }}
-                    />
-                    <div style={{ fontSize: "9px", color: LABEL_COLOR, marginTop: "2px" }}>kcal</div>
-                  </div>
-                )))
+                  );
+                }))
               ) : (
                 /* ── DER đơn (không có cycling) ── */
                 <div>
@@ -380,7 +439,7 @@ function PrintPreview({
 
       {/* ── Nutrition targets table ── */}
       {phaseVals ? (
-        /* ── Cycling: 4-column table with active-phase highlight ── */
+        /* ── Cycling: 4-column locked table, clickable phase headers ── */
         <div style={{ padding: "14px 40px 16px" }}>
           <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>
             Tổng dinh dưỡng
@@ -396,13 +455,12 @@ function PrintPreview({
               <tr>
                 <th style={th}>Chỉ số</th>
                 {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
-                  const isActive = phase === activePhase;
+                  const isA = phase === activePhase;
                   return (
-                    <th key={phase} style={{ ...th, textAlign: "center", background: isActive ? "#eb0915" : "#3a3a3a" }}>
+                    <th key={phase} onClick={() => setActivePhase(phase)}
+                      style={{ ...th, textAlign: "center", background: isA ? "#eb0915" : "#3a3a3a", cursor: "pointer", userSelect: "none" }}>
                       {phase === "low" ? "Low" : phase === "medium" ? "Medium" : "High"}
-                      {isActive && (
-                        <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#fff", marginLeft: "5px", verticalAlign: "middle" }} />
-                      )}
+                      {isA && <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#fff", marginLeft: "5px", verticalAlign: "middle" }} />}
                     </th>
                   );
                 })}
@@ -410,22 +468,19 @@ function PrintPreview({
             </thead>
             <tbody>
               {([
-                { key: "kcal"    as MacroKey, label: "Calo",    unit: " kcal" },
-                { key: "protein" as MacroKey, label: "Protein", unit: "g"     },
-                { key: "fat"     as MacroKey, label: "Fat",     unit: "g"     },
-                { key: "carbs"   as MacroKey, label: "Carbs",   unit: "g"     },
-              ]).map(({ key, label, unit }, i) => (
+                { key: "kcal"    , label: "Calo",    unit: " kcal" },
+                { key: "protein" , label: "Protein", unit: "g"     },
+                { key: "fat"     , label: "Fat",     unit: "g"     },
+                { key: "carbs"   , label: "Carbs",   unit: "g"     },
+              ] as { key: keyof typeof phaseVals.low; label: string; unit: string }[]).map(({ key, label, unit }, i) => (
                 <tr key={key} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
                   <td style={td}>{label}</td>
                   {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
-                    const isActive  = phase === activePhase;
-                    const dispVal   = phaseVals[phase][key].toLocaleString("vi-VN");
+                    const isA = phase === activePhase;
                     return (
-                      <td key={phase} style={{ ...tdRight, fontWeight: 700, fontSize: "14px", background: isActive ? "rgba(235,9,21,0.06)" : undefined }}>
-                        <SyncCell
-                          value={`${dispVal}${unit}`}
-                          onCommit={text => updatePhaseVal(phase, key, text)}
-                        />
+                      <td key={phase} onClick={() => setActivePhase(phase)}
+                        style={{ ...tdRight, fontWeight: 700, fontSize: "14px", background: isA ? "rgba(235,9,21,0.06)" : undefined, cursor: "pointer" }}>
+                        {phaseVals[phase][key].toLocaleString("vi-VN")}{unit}
                       </td>
                     );
                   })}
@@ -481,7 +536,7 @@ function PrintPreview({
       )}
 
       {/* ── AI Meal table ── */}
-      {aiMeals && aiMeals.length > 0 && (
+      {localAiMeals.length > 0 && (
         <div style={{ padding: "0 40px 16px" }}>
           <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Kế hoạch thực đơn</div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -496,32 +551,55 @@ function PrintPreview({
               </tr>
             </thead>
             <tbody>
-              {aiMeals.map((meal, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                  <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }} contentEditable suppressContentEditableWarning>{meal.mealName}</td>
-                  <td style={td} contentEditable suppressContentEditableWarning>{meal.name}</td>
-                  <td style={{ ...tdCenter, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{Math.round(meal.calories)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.protein)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.fat)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(meal.carbs)}</td>
-                </tr>
-              ))}
-              {aiGrand && (
-                <tr style={{ background: "rgba(235,9,21,0.05)" }}>
-                  <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2} contentEditable suppressContentEditableWarning>Tổng cả ngày</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.cal)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.p)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.f)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(aiGrand.c)}</td>
-                </tr>
-              )}
+              {localAiMeals.map((meal, i) => {
+                const rowId = `ai-${i}`;
+                const isHov = hoveredRow === rowId;
+                return (
+                  <tr key={i}
+                    style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)", position: "relative" }}
+                    onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}>
+                    <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap", position: "relative" }}>
+                      <div data-rt contentEditable suppressContentEditableWarning style={{ outline: "none", display: "inline" }}>{meal.mealName}</div>
+                      {isHov && (
+                        <button className="no-print" onMouseDown={e => { e.preventDefault(); setLocalAiMeals(prev => prev.filter((_, j) => j !== i)); }}
+                          style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          ×
+                        </button>
+                      )}
+                    </td>
+                    <td style={td}><div data-rt contentEditable suppressContentEditableWarning style={{ outline: "none" }}>{meal.name}</div></td>
+                    <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(meal.calories)}</td>
+                    <td style={tdCenter}>{Math.round(meal.protein)}</td>
+                    <td style={tdCenter}>{Math.round(meal.fat)}</td>
+                    <td style={tdCenter}>{Math.round(meal.carbs)}</td>
+                  </tr>
+                );
+              })}
+              {/* Tổng ngày: phase target when cycling, computed sum otherwise */}
+              <tr style={{ background: "rgba(235,9,21,0.05)" }}>
+                <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2}>
+                  {phaseVals ? `Mục tiêu ${activePhase === "low" ? "Low" : activePhase === "medium" ? "Medium" : "High"}` : "Tổng cả ngày"}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].kcal.toLocaleString("vi-VN") : Math.round(localAiMeals.reduce((s, m) => s + m.calories, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].protein : Math.round(localAiMeals.reduce((s, m) => s + m.protein, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].fat : Math.round(localAiMeals.reduce((s, m) => s + m.fat, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].carbs : Math.round(localAiMeals.reduce((s, m) => s + m.carbs, 0))}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       )}
 
       {/* ── Manual foods table ── */}
-      {manualFoods.length > 0 && (
+      {localManualFoods.length > 0 && (
         <div style={{ padding: "0 40px 16px" }}>
           <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "8px" }}>Thực đơn tự nhập</div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -535,21 +613,46 @@ function PrintPreview({
               </tr>
             </thead>
             <tbody>
-              {manualFoods.map((food, i) => (
-                <tr key={food.id} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                  <td style={td} contentEditable suppressContentEditableWarning>{food.name}</td>
-                  <td style={{ ...tdCenter, fontWeight: 600 }} contentEditable suppressContentEditableWarning>{Math.round(food.calories)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.protein)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.fat)}</td>
-                  <td style={tdCenter} contentEditable suppressContentEditableWarning>{Math.round(food.carbs)}</td>
-                </tr>
-              ))}
+              {localManualFoods.map((food, i) => {
+                const rowId = `mf-${food.id}`;
+                const isHov = hoveredRow === rowId;
+                return (
+                  <tr key={food.id}
+                    style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}
+                    onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}>
+                    <td style={{ ...td, position: "relative" }}>
+                      <div data-rt contentEditable suppressContentEditableWarning style={{ outline: "none" }}>{food.name}</div>
+                      {isHov && (
+                        <button className="no-print" onMouseDown={e => { e.preventDefault(); setLocalManualFoods(prev => prev.filter(f => f.id !== food.id)); }}
+                          style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          ×
+                        </button>
+                      )}
+                    </td>
+                    <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(food.calories)}</td>
+                    <td style={tdCenter}>{Math.round(food.protein)}</td>
+                    <td style={tdCenter}>{Math.round(food.fat)}</td>
+                    <td style={tdCenter}>{Math.round(food.carbs)}</td>
+                  </tr>
+                );
+              })}
+              {/* Tổng ngày: phase target when cycling, computed sum otherwise */}
               <tr style={{ background: "rgba(235,9,21,0.04)" }}>
-                <td style={{ ...tdBold, color: "#eb0915" }} contentEditable suppressContentEditableWarning>Tổng ngày</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.cal)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.p)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.f)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }} contentEditable suppressContentEditableWarning>{Math.round(manualTotal.c)}</td>
+                <td style={{ ...tdBold, color: "#eb0915" }}>
+                  {phaseVals ? `Mục tiêu ${activePhase === "low" ? "Low" : activePhase === "medium" ? "Medium" : "High"}` : "Tổng ngày"}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].kcal.toLocaleString("vi-VN") : Math.round(localManualFoods.reduce((s, f) => s + f.calories, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].protein : Math.round(localManualFoods.reduce((s, f) => s + f.protein, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].fat : Math.round(localManualFoods.reduce((s, f) => s + f.fat, 0))}
+                </td>
+                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>
+                  {phaseVals ? phaseVals[activePhase].carbs : Math.round(localManualFoods.reduce((s, f) => s + f.carbs, 0))}
+                </td>
               </tr>
             </tbody>
           </table>
