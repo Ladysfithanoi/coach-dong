@@ -624,7 +624,7 @@ export default function MealPlanSection({
 
   // Preview / PDF state
   const [showPreview, setShowPreview] = useState(false);
-  const [printDayIdx, setPrintDayIdx] = useState(todayIdx);
+  // printDayIdx removed — PDF uses whichever cycling day is active in the current tab
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState(150);
 
@@ -1166,10 +1166,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
       {hasMealData && (
         <button
           type="button"
-          onClick={() => {
-            setPrintDayIdx(activeTab === "manual" ? trackingDayIdx : cyclingDayIdx);
-            setShowPreview(true);
-          }}
+          onClick={() => setShowPreview(true)}
           className="w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
           style={{ background: "#12100d", color: "#ffffff" }}
         >
@@ -1219,33 +1216,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
               )}
             </div>
 
-            {cyclingSchedule?.enabled && (
-              <>
-                <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "20px" }}>|</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-semibold flex-shrink-0" style={{ color: "rgba(255,255,255,0.55)" }}>Ngày in:</span>
-                  <div className="flex gap-1">
-                    {cyclingSchedule.days.map((day, i) => {
-                      const phaseColor = day.phase === "high" ? "#eb0915" : day.phase === "medium" ? "#d97706" : "#3b82f6";
-                      const isSelected = printDayIdx === i;
-                      return (
-                        <button key={i} type="button" onClick={() => setPrintDayIdx(i)}
-                          className="px-2 py-1 rounded-lg text-xs font-bold transition-all"
-                          style={{
-                            background: isSelected ? phaseColor : "rgba(255,255,255,0.08)",
-                            color: isSelected ? "#ffffff" : "rgba(255,255,255,0.45)",
-                            border: isSelected ? `1px solid ${phaseColor}` : "1px solid rgba(255,255,255,0.1)",
-                          }}>
-                          {DAY_SHORT_MS[i]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "20px" }}>|</span>
+            {logoUrl && <span style={{ color: "rgba(255,255,255,0.2)", fontSize: "20px" }}>|</span>}
 
             {/* Image size slider — only shown when logo is uploaded */}
             {logoUrl && (
@@ -1307,20 +1278,26 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
               className="w-full bg-white shadow-2xl"
               style={{ maxWidth: "794px", minHeight: "1123px" }}
             >
-              <PrintPreview
-                key={cyclingSchedule?.enabled ? printDayIdx : "base"}
-                result={result}
-                aiMeals={aiMeals}
-                manualFoods={manualFoods}
-                date={today}
-                logoUrl={logoUrl}
-                imageSize={imageSize}
-                noticeMethod={noticeMethod}
-                noticeWater={noticeWater}
-                noticeTips={noticeTips}
-                printCyclingDay={cyclingSchedule?.enabled ? cyclingSchedule.days[printDayIdx] : null}
-                cyclingSchedule={cyclingSchedule?.enabled ? cyclingSchedule : null}
-              />
+              {(() => {
+                // Active cycling day = whichever day the PT is viewing in the current tab
+                const activeDayIdx = activeTab === "manual" ? trackingDayIdx : cyclingDayIdx;
+                return (
+                  <PrintPreview
+                    key={cyclingSchedule?.enabled ? activeDayIdx : "base"}
+                    result={result}
+                    aiMeals={aiMeals}
+                    manualFoods={manualFoods}
+                    date={today}
+                    logoUrl={logoUrl}
+                    imageSize={imageSize}
+                    noticeMethod={noticeMethod}
+                    noticeWater={noticeWater}
+                    noticeTips={noticeTips}
+                    printCyclingDay={cyclingSchedule?.enabled ? cyclingSchedule.days[activeDayIdx] : null}
+                    cyclingSchedule={cyclingSchedule?.enabled ? cyclingSchedule : null}
+                  />
+                );
+              })()}
             </div>
           </div>
 
