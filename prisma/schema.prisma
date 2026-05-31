@@ -16,3 +16,11 @@ model User {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
+
+// Read-only diet plan shared with a client via a public link (/p/[id]).
+// `data` holds the full serialized plan (per-day menus, notices, logo, cycling schedule).
+model SharedPlan {
+  id        String   @id @default(cuid())
+  data      Json
+  createdAt DateTime @default(now())
+}
