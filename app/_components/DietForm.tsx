@@ -101,7 +101,7 @@ const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
   level1: 1.2,
   level2: 1.4,
   level3: 1.6,
-  level4: 1.4,
+  level4: 1.9,
 };
 
 function calcTDEE(bmr: number, level: ActivityLevel): number {
@@ -265,7 +265,7 @@ const ACTIVITY_LABEL: Record<ActivityLevel, string> = {
   level1: "Tập tạ ≥3 buổi + <5.000 bước/ngày (×1.2)",
   level2: "Tập tạ ≥3 buổi + 5.000–6.999 bước/ngày (×1.4)",
   level3: "Tập tạ ≥3 buổi + 7.000–9.999 bước/ngày (×1.6)",
-  level4: "Tập tạ ≥3 buổi + ≥10.000 bước/ngày (×1.4)",
+  level4: "Tập tạ ≥3 buổi + ≥10.000 bước/ngày (×1.9)",
 };
 
 const INITIAL_FORM: FormState = {
