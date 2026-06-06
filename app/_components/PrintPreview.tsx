@@ -264,6 +264,13 @@ function FoodNameCell({ richHtml, isHovered, readOnly = false, onFoodPicked }: F
 
 // ─── Row reorder helpers (in-preview meal ordering) ──────────────────────────
 
+/** Manual meals are stored as "Bữa N: nguyên liệu". In the PDF the "Bữa N" label is
+ *  rendered separately and auto-numbered by position, so strip the baked-in prefix
+ *  to avoid a duplicated "Bữa 1: Bữa 1: ...". */
+function stripMealPrefix(name: string): string {
+  return name.replace(/^\s*Bữa\s*\d+\s*[:\-–]?\s*/i, "");
+}
+
 /** Move the item at `from` to `to`, keeping the whole object (name + macros)
  *  together so they can never desync. */
 function moveRow<T>(list: T[], from: number, to: number): T[] {
@@ -361,7 +368,7 @@ export function PrintPreview({
     (aiMeals ?? []).map((m, i) => ({ ...m, _id: `aim-${i}` }))
   );
   const [localManualFoods, setLocalManualFoods] = useState<PrintFood[]>(() =>
-    manualFoods.map(f => ({ ...f, richHtml: f.name }))
+    manualFoods.map(f => ({ ...f, richHtml: stripMealPrefix(f.name) }))
   );
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
@@ -719,8 +726,8 @@ export function PrintPreview({
                             onUp={() => setLocalManualFoods(prev => moveRow(prev, i, i - 1))}
                             onDown={() => setLocalManualFoods(prev => moveRow(prev, i, i + 1))} />
                         )}
-                        {/* Auto meal label "Bữa N" — follows row position on reorder */}
-                        <span style={{ fontWeight: 700, color: "#eb0915", whiteSpace: "nowrap", flexShrink: 0 }}>Bữa {i + 1}</span>
+                        {/* Auto meal label "Bữa N:" — follows row position on reorder */}
+                        <span style={{ fontWeight: 700, color: "#eb0915", whiteSpace: "nowrap", flexShrink: 0 }}>Bữa {i + 1}:</span>
                         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                           <FoodNameCell
                             richHtml={food.richHtml}
