@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { NutritionResult, CyclingSchedule } from "./DietForm";
 import { type FoodItem } from "@/lib/foods-data";
@@ -273,6 +273,27 @@ export default function MealPlanSection({
   const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Reset a day's saved menu the moment its phase (Low/Medium/High) changes.
+  // E.g. raising the Medium-day count turns former Low/High days into Medium days;
+  // they must start blank instead of carrying over the previous phase's meals.
+  const phaseSignature = cyclingSchedule?.enabled
+    ? cyclingSchedule.days.map(d => d.phase).join(",")
+    : "";
+  const prevPhaseSigRef = useRef(phaseSignature);
+  useEffect(() => {
+    const prev = prevPhaseSigRef.current;
+    prevPhaseSigRef.current = phaseSignature;
+    // Skip when cycling is off, or when it was just toggled on (prev empty) so
+    // the single bucket-0 menu built while cycling was off is preserved.
+    if (!phaseSignature || !prev) return;
+    const prevPhases = prev.split(",");
+    const curPhases = phaseSignature.split(",");
+    const changed = curPhases.map((p, i) => p !== prevPhases[i]);
+    if (!changed.some(Boolean)) return;
+    setAiMealsByDay(days => days.map((d, i) => (changed[i] ? null : d)));
+    setManualFoodsByDay(days => days.map((d, i) => (changed[i] ? [] : d)));
+  }, [phaseSignature]);
 
   // Effective day bucket: when cycling disabled, everything lives in bucket 0.
   const dayIdx = cyclingSchedule?.enabled ? selectedDayIdx : 0;
