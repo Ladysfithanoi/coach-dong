@@ -27,6 +27,16 @@ interface IngredientRow {
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
+/** Return a new array with the item at `from` moved to `to`. The whole object
+ *  (name + calo + macro) moves together, so they can never fall out of sync. */
+function moveItem<T>(list: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  const [it] = next.splice(from, 1);
+  next.splice(to, 0, it);
+  return next;
+}
+
 function stripMarkdown(text: string): string {
   return text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "").trim();
 }
@@ -97,12 +107,40 @@ function TrackingBar({ label, current, target, color }: { label: string; current
 
 // ─── AiMealCard ───────────────────────────────────────────────────────────────
 
-function AiMealCard({ meal }: { meal: AiMeal }) {
+// Compact up/down control to reorder a list item. Moving an item moves its whole
+// object, so calo/macro always travel with the name.
+function ReorderButtons({ onUp, onDown, canUp, canDown }: {
+  onUp: () => void; onDown: () => void; canUp: boolean; canDown: boolean;
+}) {
+  const btn = (dir: "up" | "down", on: () => void, can: boolean) => (
+    <button type="button" onClick={on} disabled={!can} aria-label={dir === "up" ? "Lên" : "Xuống"}
+      className="w-5 h-4 flex items-center justify-center rounded transition-colors"
+      style={{ background: can ? "rgba(18,16,13,0.05)" : "transparent", color: can ? "rgba(18,16,13,0.5)" : "rgba(18,16,13,0.18)", cursor: can ? "pointer" : "default", lineHeight: 1 }}>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2">
+        {dir === "up" ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
+      </svg>
+    </button>
+  );
+  return (
+    <div className="flex flex-col gap-0.5 flex-shrink-0">
+      {btn("up", onUp, canUp)}
+      {btn("down", onDown, canDown)}
+    </div>
+  );
+}
+
+function AiMealCard({ meal, onMoveUp, onMoveDown, canMoveUp, canMoveDown }: {
+  meal: AiMeal;
+  onMoveUp: () => void; onMoveDown: () => void; canMoveUp: boolean; canMoveDown: boolean;
+}) {
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(18,16,13,0.1)" }}>
-      <div className="px-4 py-2 flex items-center justify-between" style={{ background: "rgba(235,9,21,0.05)" }}>
-        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#eb0915" }}>{meal.mealName}</span>
-        <span style={{ fontSize: "0.875rem", fontWeight: 700, color: "#12100d" }}>{meal.calories} kcal</span>
+      <div className="px-4 py-2 flex items-center justify-between gap-2" style={{ background: "rgba(235,9,21,0.05)" }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <ReorderButtons onUp={onMoveUp} onDown={onMoveDown} canUp={canMoveUp} canDown={canMoveDown} />
+          <span className="truncate" style={{ fontSize: "0.875rem", fontWeight: 700, color: "#eb0915" }}>{meal.mealName}</span>
+        </div>
+        <span className="flex-shrink-0" style={{ fontSize: "0.875rem", fontWeight: 700, color: "#12100d" }}>{meal.calories} kcal</span>
       </div>
       <div className="px-4 py-3 flex items-start justify-between gap-3">
         <p style={{ fontSize: "0.875rem", color: "#12100d", lineHeight: 1.55, flex: 1 }}>{meal.name}</p>
@@ -637,7 +675,13 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
               {aiMeals && (
                 <div className="space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Thực đơn gợi ý</p>
-                  {aiMeals.map((meal, i) => <AiMealCard key={i} meal={meal} />)}
+                  {aiMeals.map((meal, i) => (
+                    <AiMealCard key={i} meal={meal}
+                      canMoveUp={i > 0} canMoveDown={i < aiMeals.length - 1}
+                      onMoveUp={() => setAiMealsForDay(dayIdx, moveItem(aiMeals, i, i - 1))}
+                      onMoveDown={() => setAiMealsForDay(dayIdx, moveItem(aiMeals, i, i + 1))}
+                    />
+                  ))}
                   {(() => {
                     const gt = aiMeals.reduce((a, m) => ({ cal: a.cal + m.calories, p: a.p + m.protein, f: a.f + m.fat, c: a.c + m.carbs }), { cal: 0, p: 0, f: 0, c: 0 });
                     return (
@@ -751,12 +795,17 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
               {manualFoods.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>Danh sách đã nhập ({manualFoods.length} món)</p>
-                  {manualFoods.map(food => (
+                  {manualFoods.map((food, i) => (
                     <div key={food.id} className="flex items-center gap-2 rounded-xl px-4 py-3"
                       style={{
                         background: editingMealId === food.id ? "rgba(29,78,216,0.06)" : "rgba(18,16,13,0.025)",
                         border: editingMealId === food.id ? "1px solid rgba(29,78,216,0.3)" : "1px solid rgba(18,16,13,0.07)",
                       }}>
+                      <ReorderButtons
+                        canUp={i > 0} canDown={i < manualFoods.length - 1}
+                        onUp={() => updateManualForDay(dayIdx, list => moveItem(list, i, i - 1))}
+                        onDown={() => updateManualForDay(dayIdx, list => moveItem(list, i, i + 1))}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate" style={{ color: "#12100d" }}>{food.name}</p>
                         <p className="text-xs mt-0.5" style={{ color: "rgba(18,16,13,0.4)" }}>
