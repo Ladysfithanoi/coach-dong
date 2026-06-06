@@ -279,11 +279,32 @@ export default function MealPlanSection({
   const aiMeals = aiMealsByDay[dayIdx];
   const manualFoods = manualFoodsByDay[dayIdx];
 
+  // Days sharing a phase (Low/Medium/High) have identical kcal+macro targets, so a
+  // menu built for one is applied to all of them — pick meals for a Low day and
+  // every Low day gets the same set (same for Medium/High). When cycling is off,
+  // only bucket 0 is touched.
+  const samePhaseIdxs = useCallback((idx: number): number[] => {
+    if (!cyclingSchedule?.enabled) return [idx];
+    const phase = cyclingSchedule.days[idx]?.phase;
+    if (!phase) return [idx];
+    return cyclingSchedule.days.flatMap((d, i) => (d.phase === phase ? [i] : []));
+  }, [cyclingSchedule]);
+
   const setAiMealsForDay = useCallback((idx: number, v: AiMeal[] | null) => {
-    setAiMealsByDay(prev => prev.map((d, i) => (i === idx ? v : d)));
-  }, []);
+    const targets = samePhaseIdxs(idx);
+    // Clone per day so the shared menu never becomes a shared mutable reference.
+    setAiMealsByDay(prev => prev.map((d, i) =>
+      targets.includes(i) ? (v ? v.map(m => ({ ...m })) : v) : d));
+  }, [samePhaseIdxs]);
   const updateManualForDay = (idx: number, fn: (list: ManualFood[]) => ManualFood[]) => {
-    setManualFoodsByDay(prev => prev.map((d, i) => (i === idx ? fn(d) : d)));
+    setManualFoodsByDay(prev => {
+      const newList = fn(prev[idx]);
+      const targets = samePhaseIdxs(idx);
+      return prev.map((d, i) =>
+        i === idx ? newList
+          : targets.includes(i) ? newList.map(f => ({ ...f }))
+            : d);
+    });
   };
 
   // Notice block state

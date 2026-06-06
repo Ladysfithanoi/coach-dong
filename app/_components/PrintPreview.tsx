@@ -351,6 +351,13 @@ export function PrintPreview({
     };
   })() : null;
 
+  // Phases actually used this week (have ≥1 day and a real kcal). Phases with no
+  // day are hidden in the PDF so the Low/Med/High block doesn't show empty columns.
+  const shownPhases: PhaseKey[] = phaseVals && cyclingSchedule
+    ? (["low", "medium", "high"] as PhaseKey[]).filter(p =>
+        cyclingSchedule.days.some(d => d.phase === p) && phaseVals[p].kcal > 0)
+    : [];
+
   // ── Active-phase selection (locked in readOnly to the day's phase) ──────────
   // Each preview page represents exactly one cycling day, so the highlighted phase
   // always follows that day's phase. Clicking a phase navigates to that phase's day;
@@ -436,21 +443,18 @@ export function PrintPreview({
             {/* ── Right: calorie chips — flexShrink:0 so chips are never compressed ── */}
             <div style={{ flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "flex-start", gap: "24px" }}>
               {phaseVals ? (
-                /* ── 3 cột clickable LOW | MID | HIGH ── */
-                (([
-                  { label: "Calo (Low)",  phase: "low"    as PhaseKey },
-                  { label: "Calo (Mid)",  phase: "medium" as PhaseKey },
-                  { label: "Calo (High)", phase: "high"   as PhaseKey },
-                ]).map(col => {
-                  const isA = col.phase === activePhase;
+                /* ── Clickable LOW | MID | HIGH — chỉ hiện phase có ngày ── */
+                (shownPhases.map(phase => {
+                  const label = phase === "low" ? "Calo (Low)" : phase === "medium" ? "Calo (Mid)" : "Calo (High)";
+                  const isA = phase === activePhase;
                   return (
-                    <div key={col.label} onClick={() => pickPhase(col.phase)}
+                    <div key={phase} onClick={() => pickPhase(phase)}
                       style={{ textAlign: "center", cursor: editable ? "pointer" : "default", padding: "6px 10px", borderRadius: "8px", border: isA ? "1.5px solid #eb0915" : "1.5px solid transparent", background: isA ? "rgba(235,9,21,0.05)" : "transparent", transition: "all 0.18s" }}>
                       <div style={{ fontSize: "9px", color: isA ? "#eb0915" : LABEL_COLOR, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px", fontWeight: isA ? 700 : 400 }}>
-                        {col.label}
+                        {label}
                       </div>
                       <div style={{ fontSize: "14px", fontWeight: 800, color: isA ? "#eb0915" : "#12100d", lineHeight: 1 }}>
-                        {phaseVals[col.phase].kcal > 0 ? phaseVals[col.phase].kcal.toLocaleString("vi-VN") : "—"}
+                        {phaseVals[phase].kcal.toLocaleString("vi-VN")}
                       </div>
                       <div style={{ fontSize: "9px", color: isA ? "#eb0915" : LABEL_COLOR, marginTop: "2px" }}>kcal</div>
                     </div>
@@ -536,14 +540,12 @@ export function PrintPreview({
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <colgroup>
               <col style={{ width: "28%" }} />
-              <col style={{ width: "24%" }} />
-              <col style={{ width: "24%" }} />
-              <col style={{ width: "24%" }} />
+              {shownPhases.map(p => <col key={p} style={{ width: `${72 / shownPhases.length}%` }} />)}
             </colgroup>
             <thead>
               <tr>
                 <th style={th}>Chỉ số</th>
-                {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
+                {shownPhases.map(phase => {
                   const isA = phase === activePhase;
                   return (
                     <th key={phase} onClick={() => pickPhase(phase)}
@@ -564,7 +566,7 @@ export function PrintPreview({
               ] as { key: keyof typeof phaseVals.low; label: string; unit: string }[]).map(({ key, label, unit }, i) => (
                 <tr key={key} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
                   <td style={td}>{label}</td>
-                  {(["low", "medium", "high"] as PhaseKey[]).map(phase => {
+                  {shownPhases.map(phase => {
                     const isA = phase === activePhase;
                     return (
                       <td key={phase} onClick={() => pickPhase(phase)}
