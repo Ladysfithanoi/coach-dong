@@ -262,6 +262,40 @@ function FoodNameCell({ richHtml, isHovered, readOnly = false, onFoodPicked }: F
   );
 }
 
+// ─── Row reorder helpers (in-preview meal ordering) ──────────────────────────
+
+/** Move the item at `from` to `to`, keeping the whole object (name + macros)
+ *  together so they can never desync. */
+function moveRow<T>(list: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  const [it] = next.splice(from, 1);
+  next.splice(to, 0, it);
+  return next;
+}
+
+/** Compact up/down control (no-print) for reordering a meal row. */
+function RowReorder({ onUp, onDown, canUp, canDown }: {
+  onUp: () => void; onDown: () => void; canUp: boolean; canDown: boolean;
+}) {
+  const b = (dir: "up" | "down", on: () => void, can: boolean) => (
+    <button type="button" className="no-print" disabled={!can}
+      onMouseDown={e => { e.preventDefault(); if (can) on(); }}
+      aria-label={dir === "up" ? "Lên" : "Xuống"}
+      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "15px", height: "12px", padding: 0, border: "none", borderRadius: "3px", background: can ? "rgba(18,16,13,0.07)" : "transparent", color: can ? "rgba(18,16,13,0.5)" : "rgba(18,16,13,0.18)", cursor: can ? "pointer" : "default", lineHeight: 1 }}>
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5">
+        {dir === "up" ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
+      </svg>
+    </button>
+  );
+  return (
+    <span className="no-print" style={{ display: "inline-flex", flexDirection: "column", gap: "1px", verticalAlign: "middle", flexShrink: 0 }}>
+      {b("up", onUp, canUp)}
+      {b("down", onDown, canDown)}
+    </span>
+  );
+}
+
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 export function PrintPreview({
@@ -320,8 +354,12 @@ export function PrintPreview({
     if (editable) onPhaseNavigate?.(p);
   };
 
-  // ── Local meal lists (supports in-preview delete) ──────────────────────────
-  const [localAiMeals, setLocalAiMeals] = useState<AiMeal[]>(() => aiMeals ?? []);
+  // ── Local meal lists (supports in-preview delete + reorder) ────────────────
+  // AI rows carry a stable _id so reordering moves each row's edited rich-text
+  // detail together with its macros (index keys would desync them).
+  const [localAiMeals, setLocalAiMeals] = useState<(AiMeal & { _id: string })[]>(() =>
+    (aiMeals ?? []).map((m, i) => ({ ...m, _id: `aim-${i}` }))
+  );
   const [localManualFoods, setLocalManualFoods] = useState<PrintFood[]>(() =>
     manualFoods.map(f => ({ ...f, richHtml: f.name }))
   );
@@ -596,14 +634,22 @@ export function PrintPreview({
             </thead>
             <tbody>
               {localAiMeals.map((meal, i) => {
-                const rowId = `ai-${i}`;
+                const rowId = `ai-${meal._id}`;
                 const isHov = hoveredRow === rowId;
                 return (
-                  <tr key={i}
+                  <tr key={meal._id}
                     style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)", position: "relative" }}
                     onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}>
                     <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap", position: "relative" }}>
-                      <div data-rt contentEditable={editable} suppressContentEditableWarning style={{ outline: "none", display: "inline" }}>{meal.mealName}</div>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                        {editable && (
+                          <RowReorder canUp={i > 0} canDown={i < localAiMeals.length - 1}
+                            onUp={() => setLocalAiMeals(prev => moveRow(prev, i, i - 1))}
+                            onDown={() => setLocalAiMeals(prev => moveRow(prev, i, i + 1))} />
+                        )}
+                        {/* Auto-numbered meal name — follows row position on reorder */}
+                        <span>Bữa {i + 1}</span>
+                      </span>
                       {editable && isHov && (
                         <button className="no-print" onMouseDown={e => { e.preventDefault(); setLocalAiMeals(prev => prev.filter((_, j) => j !== i)); }}
                           style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -665,30 +711,41 @@ export function PrintPreview({
                     style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}
                     onMouseEnter={() => setHoveredRow(rowId)} onMouseLeave={() => setHoveredRow(null)}>
 
-                    {/* ── Name cell: FoodNameCell (rich-text + DB search) ── */}
+                    {/* ── Name cell: reorder + auto number + FoodNameCell (rich-text + DB search) ── */}
                     <td style={{ ...td, position: "relative" }}>
-                      <FoodNameCell
-                        richHtml={food.richHtml}
-                        isHovered={isHov}
-                        readOnly={readOnly}
-                        onFoodPicked={(pickedFood, newHtml) => {
-                          // Compute macros for 100g default (same as computeRowMacros)
-                          const macros = computeRowMacros(pickedFood, 100);
-                          setLocalManualFoods(prev => prev.map(f =>
-                            f.id === food.id
-                              ? { ...f, name: pickedFood.name, richHtml: newHtml, ...macros }
-                              : f
-                          ));
-                        }}
-                      />
-                      {/* Delete button – no-print */}
-                      {editable && isHov && (
-                        <button className="no-print"
-                          onMouseDown={e => { e.preventDefault(); setLocalManualFoods(prev => prev.filter(f => f.id !== food.id)); }}
-                          style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          ×
-                        </button>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        {editable && (
+                          <RowReorder canUp={i > 0} canDown={i < localManualFoods.length - 1}
+                            onUp={() => setLocalManualFoods(prev => moveRow(prev, i, i - 1))}
+                            onDown={() => setLocalManualFoods(prev => moveRow(prev, i, i + 1))} />
+                        )}
+                        {/* Auto sequence number — follows row position on reorder */}
+                        <span style={{ fontWeight: 700, color: "rgba(18,16,13,0.4)", flexShrink: 0 }}>{i + 1}.</span>
+                        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                          <FoodNameCell
+                            richHtml={food.richHtml}
+                            isHovered={isHov}
+                            readOnly={readOnly}
+                            onFoodPicked={(pickedFood, newHtml) => {
+                              // Compute macros for 100g default (same as computeRowMacros)
+                              const macros = computeRowMacros(pickedFood, 100);
+                              setLocalManualFoods(prev => prev.map(f =>
+                                f.id === food.id
+                                  ? { ...f, name: pickedFood.name, richHtml: newHtml, ...macros }
+                                  : f
+                              ));
+                            }}
+                          />
+                          {/* Delete button – no-print */}
+                          {editable && isHov && (
+                            <button className="no-print"
+                              onMouseDown={e => { e.preventDefault(); setLocalManualFoods(prev => prev.filter(f => f.id !== food.id)); }}
+                              style={{ position: "absolute", top: "50%", right: "4px", transform: "translateY(-50%)", background: "#eb0915", border: "none", color: "#fff", borderRadius: "50%", width: "18px", height: "18px", cursor: "pointer", fontSize: "11px", fontWeight: 700, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </td>
 
                     {/* ── Macro cells: locked (auto-updated from state) ── */}
