@@ -311,12 +311,13 @@ export function PrintPreview({
   })() : null;
 
   // ── Active-phase selection (locked in readOnly to the day's phase) ──────────
-  const [activePhase, setActivePhase] = useState<PhaseKey>(printCyclingDay?.phase ?? "medium");
+  // Each preview page represents exactly one cycling day, so the highlighted phase
+  // always follows that day's phase. Clicking a phase navigates to that phase's day;
+  // the page that becomes visible already highlights it. Deriving it (instead of a
+  // separate local state) avoids the one-click-behind stale highlight.
+  const activePhase: PhaseKey = printCyclingDay?.phase ?? "medium";
   const pickPhase = (p: PhaseKey) => {
-    if (!editable) return;
-    setActivePhase(p);
-    // Switch the preview to that phase's day so its selected meals show too.
-    onPhaseNavigate?.(p);
+    if (editable) onPhaseNavigate?.(p);
   };
 
   // ── Local meal lists (supports in-preview delete) ──────────────────────────
