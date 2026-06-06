@@ -10,6 +10,7 @@ import {
   searchFoods,
   type AiMeal,
   type ManualFood,
+  type PhaseKey,
 } from "./PrintPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -260,6 +261,18 @@ export default function MealPlanSection({
   const [previewDayIdx, setPreviewDayIdx] = useState(todayIdx);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState(150);
+
+  // Clicking a Low/Medium/High column in the preview's "Tổng dinh dưỡng" table
+  // jumps to that phase's day so its selected meals are shown. Prefer a day of
+  // that phase that already has a menu; otherwise the first day of that phase.
+  const goToPhaseDay = useCallback((phase: PhaseKey) => {
+    if (!cyclingSchedule?.enabled) return;
+    const days = cyclingSchedule.days;
+    const withMenu = days.findIndex((d, i) =>
+      d.phase === phase && ((aiMealsByDay[i] && aiMealsByDay[i]!.length > 0) || manualFoodsByDay[i].length > 0));
+    const target = withMenu >= 0 ? withMenu : days.findIndex(d => d.phase === phase);
+    if (target >= 0) setPreviewDayIdx(target);
+  }, [cyclingSchedule, aiMealsByDay, manualFoodsByDay]);
 
   // Share-link state
   const [shareLoading, setShareLoading] = useState(false);
@@ -1041,6 +1054,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                         printCyclingDay={cycling ? cyclingSchedule!.days[i] : null}
                         cyclingSchedule={cycling ? cyclingSchedule! : null}
                         showToolbar={pos === 0}
+                        onPhaseNavigate={cycling ? goToPhaseDay : undefined}
                       />
                     </div>
                   );

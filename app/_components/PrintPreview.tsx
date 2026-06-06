@@ -265,7 +265,7 @@ function FoodNameCell({ richHtml, isHovered, readOnly = false, onFoodPicked }: F
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 export function PrintPreview({
-  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips, printCyclingDay, cyclingSchedule, readOnly = false, showToolbar = true,
+  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips, printCyclingDay, cyclingSchedule, readOnly = false, showToolbar = true, onPhaseNavigate,
 }: {
   result: NutritionResult;
   aiMeals: AiMeal[] | null;
@@ -282,6 +282,9 @@ export function PrintPreview({
   /** Render the shared floating rich-text toolbar. When several PrintPreviews are
    *  mounted at once (per-day PDF), only one instance should render it. */
   showToolbar?: boolean;
+  /** Clicking a Low/Medium/High phase column navigates to that phase's day so its
+   *  selected meals are shown. When omitted, phase click only re-highlights totals. */
+  onPhaseNavigate?: (phase: PhaseKey) => void;
 }) {
   const editable = !readOnly;
   const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", textAlign: "left" };
@@ -309,7 +312,12 @@ export function PrintPreview({
 
   // ── Active-phase selection (locked in readOnly to the day's phase) ──────────
   const [activePhase, setActivePhase] = useState<PhaseKey>(printCyclingDay?.phase ?? "medium");
-  const pickPhase = (p: PhaseKey) => { if (editable) setActivePhase(p); };
+  const pickPhase = (p: PhaseKey) => {
+    if (!editable) return;
+    setActivePhase(p);
+    // Switch the preview to that phase's day so its selected meals show too.
+    onPhaseNavigate?.(p);
+  };
 
   // ── Local meal lists (supports in-preview delete) ──────────────────────────
   const [localAiMeals, setLocalAiMeals] = useState<AiMeal[]>(() => aiMeals ?? []);
