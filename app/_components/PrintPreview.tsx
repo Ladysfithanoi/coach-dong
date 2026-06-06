@@ -265,7 +265,7 @@ function FoodNameCell({ richHtml, isHovered, readOnly = false, onFoodPicked }: F
 // ─── PrintPreview (the full editable + printable PDF template) ────────────────
 
 export function PrintPreview({
-  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips, printCyclingDay, cyclingSchedule, readOnly = false,
+  result, aiMeals, manualFoods, date, logoUrl, imageSize, noticeMethod, noticeWater, noticeTips, printCyclingDay, cyclingSchedule, readOnly = false, showToolbar = true,
 }: {
   result: NutritionResult;
   aiMeals: AiMeal[] | null;
@@ -279,6 +279,9 @@ export function PrintPreview({
   printCyclingDay: { kcal: number; protein: number; fat: number; carbs: number; phase: "high" | "medium" | "low" } | null;
   cyclingSchedule: CyclingSchedule | null;
   readOnly?: boolean;
+  /** Render the shared floating rich-text toolbar. When several PrintPreviews are
+   *  mounted at once (per-day PDF), only one instance should render it. */
+  showToolbar?: boolean;
 }) {
   const editable = !readOnly;
   const th: React.CSSProperties = { padding: "9px 13px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", background: "#eb0915", color: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", textAlign: "left" };
@@ -320,8 +323,8 @@ export function PrintPreview({
   return (
     <div style={{ background: "#ffffff", fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", color: "#12100d" }}>
 
-      {/* ── Rich-text floating toolbar (editable only) ── */}
-      {editable && <RichToolbar />}
+      {/* ── Rich-text floating toolbar (editable only, one shared instance) ── */}
+      {editable && showToolbar && <RichToolbar />}
 
       {/* ── Logo + date row ── */}
       <div style={{ padding: "20px 40px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>

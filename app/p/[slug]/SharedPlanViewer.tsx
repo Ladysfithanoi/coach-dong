@@ -40,8 +40,6 @@ export default function SharedPlanViewer({ data }: { data: SharedPlanData }) {
     );
   }
 
-  const dayData = days[selectedIdx];
-
   return (
     <div className="min-h-screen bg-gray-100">
 
@@ -90,29 +88,41 @@ export default function SharedPlanViewer({ data }: { data: SharedPlanData }) {
         </div>
       </div>
 
-      {/* ── A4 print area ── */}
+      {/* ── A4 print area(s) — one page per day with a menu (all printed) ── */}
       <div className="py-6 px-4 flex justify-center">
-        <div id="pdf-print-area" className="w-full bg-white shadow-2xl" style={{ maxWidth: "794px", minHeight: "1123px" }}>
-          <PrintPreview
-            key={selectedIdx}
-            readOnly
-            result={result}
-            aiMeals={dayData.aiMeals}
-            manualFoods={dayData.manualFoods}
-            date={date}
-            logoUrl={logoUrl}
-            imageSize={imageSize}
-            noticeMethod={notices.method}
-            noticeWater={notices.water}
-            noticeTips={notices.tips}
-            printCyclingDay={cycling ? cyclingSchedule!.days[selectedIdx] : null}
-            cyclingSchedule={cycling ? cyclingSchedule : null}
-          />
+        <div className="w-full" style={{ maxWidth: "794px" }}>
+          {availableDays.map((i, pos) => (
+            <div
+              key={i}
+              data-day-idx={i}
+              className={`pdf-day bg-white shadow-2xl${selectedIdx === i ? " pdf-day-selected" : ""}`}
+              style={{ width: "100%", minHeight: "1123px", marginTop: pos === 0 ? 0 : "24px" }}
+            >
+              <PrintPreview
+                readOnly
+                result={result}
+                aiMeals={days[i].aiMeals}
+                manualFoods={days[i].manualFoods}
+                date={date}
+                logoUrl={logoUrl}
+                imageSize={imageSize}
+                noticeMethod={notices.method}
+                noticeWater={notices.water}
+                noticeTips={notices.tips}
+                printCyclingDay={cycling ? cyclingSchedule!.days[i] : null}
+                cyclingSchedule={cycling ? cyclingSchedule : null}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
       {/* ── Print CSS (mirror of the coach preview) ── */}
       <style>{`
+        /* On screen: show only the selected day; print emits every menu day. */
+        .pdf-day { display: none; }
+        .pdf-day.pdf-day-selected { display: block; }
+
         @media print {
           @page { size: A4 portrait; margin: 8mm; }
           *, *::before, *::after {
@@ -123,7 +133,8 @@ export default function SharedPlanViewer({ data }: { data: SharedPlanData }) {
           }
           html, body { height: auto !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; background: white !important; }
           .no-print { display: none !important; }
-          #pdf-print-area {
+          .pdf-day {
+            display: block !important;
             position: static !important;
             box-shadow: none !important;
             width: 794px !important;
@@ -132,10 +143,11 @@ export default function SharedPlanViewer({ data }: { data: SharedPlanData }) {
             zoom: 0.82 !important;
             margin: 0 auto !important;
           }
+          .pdf-day + .pdf-day { page-break-before: always !important; break-before: page !important; }
           table { break-inside: avoid !important; page-break-inside: avoid !important; }
-          #pdf-print-area > div > div { break-inside: avoid !important; page-break-inside: avoid !important; }
-          #pdf-print-area [data-print-block="roadmap"] { padding: 6px 10px !important; margin-bottom: 8px !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-          #pdf-print-area [data-print-block="roadmap"] > div { gap: 8px !important; }
+          .pdf-day > div > div { break-inside: avoid !important; page-break-inside: avoid !important; }
+          .pdf-day [data-print-block="roadmap"] { padding: 6px 10px !important; margin-bottom: 8px !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+          .pdf-day [data-print-block="roadmap"] > div { gap: 8px !important; }
           [contenteditable] { outline: none !important; border: none !important; }
         }
       `}</style>

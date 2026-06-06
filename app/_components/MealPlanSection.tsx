@@ -997,31 +997,54 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
             </div>
           )}
 
-          {/* A4 print area */}
+          {/* A4 print area(s) — one page per day that has a menu.
+              All days stay mounted so per-day edits survive day-switching, and on
+              print every menu day is emitted as its own page. On screen only the
+              selected day is shown (CSS .pdf-day visibility below). */}
           <div className="py-6 px-4 flex justify-center">
-            <div
-              id="pdf-print-area"
-              className="w-full bg-white shadow-2xl"
-              style={{ maxWidth: "794px", minHeight: "1123px" }}
-            >
+            <div className="w-full" style={{ maxWidth: "794px" }}>
               {(() => {
-                const pvIdx = cyclingSchedule?.enabled ? previewDayIdx : 0;
-                return (
-                  <PrintPreview
-                    key={cyclingSchedule?.enabled ? pvIdx : "base"}
-                    result={result}
-                    aiMeals={aiMealsByDay[pvIdx]}
-                    manualFoods={manualFoodsByDay[pvIdx]}
-                    date={today}
-                    logoUrl={logoUrl}
-                    imageSize={imageSize}
-                    noticeMethod={noticeMethod}
-                    noticeWater={noticeWater}
-                    noticeTips={noticeTips}
-                    printCyclingDay={cyclingSchedule?.enabled ? cyclingSchedule.days[pvIdx] : null}
-                    cyclingSchedule={cyclingSchedule?.enabled ? cyclingSchedule : null}
-                  />
-                );
+                const cycling = !!cyclingSchedule?.enabled;
+                const hasMenu = (i: number) =>
+                  (!!aiMealsByDay[i] && aiMealsByDay[i]!.length > 0) || manualFoodsByDay[i].length > 0;
+
+                let dayIndices: number[];
+                if (cycling) {
+                  dayIndices = Array.from({ length: 7 }, (_, i) => i).filter(hasMenu);
+                  // Always keep the selected day visible on screen even if empty.
+                  // Append last so it never sits between two printable pages.
+                  if (!dayIndices.includes(previewDayIdx)) dayIndices.push(previewDayIdx);
+                } else {
+                  dayIndices = [0];
+                }
+
+                return dayIndices.map((i, pos) => {
+                  const empty = cycling && !hasMenu(i);
+                  const selected = cycling ? i === previewDayIdx : true;
+                  return (
+                    <div
+                      key={i}
+                      data-day-idx={i}
+                      className={`pdf-day bg-white shadow-2xl${selected ? " pdf-day-selected" : ""}${empty ? " pdf-day-empty" : ""}`}
+                      style={{ width: "100%", minHeight: "1123px", marginTop: pos === 0 ? 0 : "24px" }}
+                    >
+                      <PrintPreview
+                        result={result}
+                        aiMeals={aiMealsByDay[i]}
+                        manualFoods={manualFoodsByDay[i]}
+                        date={today}
+                        logoUrl={logoUrl}
+                        imageSize={imageSize}
+                        noticeMethod={noticeMethod}
+                        noticeWater={noticeWater}
+                        noticeTips={noticeTips}
+                        printCyclingDay={cycling ? cyclingSchedule!.days[i] : null}
+                        cyclingSchedule={cycling ? cyclingSchedule! : null}
+                        showToolbar={pos === 0}
+                      />
+                    </div>
+                  );
+                });
               })()}
             </div>
           </div>
@@ -1080,6 +1103,10 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
 
           {/* Print CSS */}
           <style>{`
+            /* ── On screen: show only the selected day's page ── */
+            .pdf-day { display: none; }
+            .pdf-day.pdf-day-selected { display: block; }
+
             @media print {
               /* ── Kích thước trang A4, margin 8mm ── */
               @page {
@@ -1123,7 +1150,7 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 padding: 0 !important;
               }
 
-              /* ── Wrapper: flex-center để #pdf-print-area nằm chính giữa trang ── */
+              /* ── Wrapper: flex-center để các trang .pdf-day nằm chính giữa trang ── */
               #pdf-preview-root > div:not(.no-print) {
                 padding: 0 !important;
                 margin: 0 !important;
@@ -1132,8 +1159,9 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 align-items: flex-start !important;
               }
 
-              /* ── Scale nội dung xuống ~82% để vừa A4 với 8mm margin, căn giữa ── */
-              #pdf-print-area {
+              /* ── In: hiện TẤT CẢ ngày có thực đơn, mỗi ngày 1 trang riêng ── */
+              .pdf-day {
+                display: block !important;
                 position: static !important;
                 box-shadow: none !important;
                 width: 794px !important;
@@ -1142,25 +1170,32 @@ Tổng Calo cả ngày: ${effectiveDer - 50}–${effectiveDer + 50} kcal
                 zoom: 0.82 !important;
                 margin: 0 auto !important;
               }
+              /* Ngày được chọn nhưng chưa có thực đơn → không in trang trống */
+              .pdf-day.pdf-day-empty { display: none !important; }
+              /* Mỗi trang ngày tiếp theo bắt đầu ở trang mới */
+              .pdf-day + .pdf-day {
+                page-break-before: always !important;
+                break-before: page !important;
+              }
 
               /* ── Ngăn ngắt trang giữa bảng biểu và khối notice ── */
               table {
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
               }
-              #pdf-print-area > div > div {
+              .pdf-day > div > div {
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
               }
 
               /* ── Thu hẹp padding khối roadmap khi in để tiết kiệm chiều dọc ── */
-              #pdf-print-area [data-print-block="roadmap"] {
+              .pdf-day [data-print-block="roadmap"] {
                 padding: 6px 10px !important;
                 margin-bottom: 8px !important;
                 break-inside: avoid !important;
                 page-break-inside: avoid !important;
               }
-              #pdf-print-area [data-print-block="roadmap"] > div {
+              .pdf-day [data-print-block="roadmap"] > div {
                 gap: 8px !important;
               }
 
