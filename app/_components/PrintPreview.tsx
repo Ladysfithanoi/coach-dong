@@ -719,8 +719,8 @@ export function PrintPreview({
                             onUp={() => setLocalManualFoods(prev => moveRow(prev, i, i - 1))}
                             onDown={() => setLocalManualFoods(prev => moveRow(prev, i, i + 1))} />
                         )}
-                        {/* Auto sequence number — follows row position on reorder */}
-                        <span style={{ fontWeight: 700, color: "rgba(18,16,13,0.4)", flexShrink: 0 }}>{i + 1}.</span>
+                        {/* Auto meal label "Bữa N" — follows row position on reorder */}
+                        <span style={{ fontWeight: 700, color: "#eb0915", whiteSpace: "nowrap", flexShrink: 0 }}>Bữa {i + 1}</span>
                         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                           <FoodNameCell
                             richHtml={food.richHtml}
