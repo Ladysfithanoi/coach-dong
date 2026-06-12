@@ -27,8 +27,8 @@ export interface ManualFood {
 }
 
 export type PhaseKey = "low" | "medium" | "high";
-/** ManualFood extended with per-cell rich-HTML snapshot (print-preview only) */
-type PrintFood = ManualFood & { richHtml: string };
+/** ManualFood extended with per-cell rich-HTML snapshot + custom meal label (print-preview only) */
+type PrintFood = ManualFood & { richHtml: string; label?: string };
 
 // ─── Shared food helpers (used by both MealPlanSection & PrintPreview) ─────────
 
@@ -371,7 +371,9 @@ export function PrintPreview({
   // ── Local meal lists (supports in-preview delete + reorder) ────────────────
   // AI rows carry a stable _id so reordering moves each row's edited rich-text
   // detail together with its macros (index keys would desync them).
-  const [localAiMeals, setLocalAiMeals] = useState<(AiMeal & { _id: string })[]>(() =>
+  // `label` overrides the auto-numbered "Bữa N" name once the user edits it;
+  // it moves with the row on reorder (so the custom name never desyncs).
+  const [localAiMeals, setLocalAiMeals] = useState<(AiMeal & { _id: string; label?: string })[]>(() =>
     (aiMeals ?? []).map((m, i) => ({ ...m, _id: `aim-${i}` }))
   );
   const [localManualFoods, setLocalManualFoods] = useState<PrintFood[]>(() =>
@@ -656,8 +658,21 @@ export function PrintPreview({
                             onUp={() => setLocalAiMeals(prev => moveRow(prev, i, i - 1))}
                             onDown={() => setLocalAiMeals(prev => moveRow(prev, i, i + 1))} />
                         )}
-                        {/* Auto-numbered meal name — follows row position on reorder */}
-                        <span>Bữa {i + 1}</span>
+                        {/* Auto-numbered meal name — click to rename; override persists & moves on reorder */}
+                        <span
+                          contentEditable={editable}
+                          suppressContentEditableWarning
+                          title={editable ? "Nhấn để sửa tên bữa" : undefined}
+                          onBlur={editable ? (e) => {
+                            const txt = e.currentTarget.textContent?.trim() ?? "";
+                            setLocalAiMeals(prev => prev.map(m =>
+                              m._id === meal._id ? { ...m, label: txt || undefined } : m
+                            ));
+                          } : undefined}
+                          style={{ outline: "none", cursor: editable ? "text" : undefined }}
+                        >
+                          {meal.label ?? `Bữa ${i + 1}`}
+                        </span>
                       </span>
                       {editable && isHov && (
                         <button className="no-print" onMouseDown={e => { e.preventDefault(); setLocalAiMeals(prev => prev.filter((_, j) => j !== i)); }}
@@ -728,8 +743,23 @@ export function PrintPreview({
                             onUp={() => setLocalManualFoods(prev => moveRow(prev, i, i - 1))}
                             onDown={() => setLocalManualFoods(prev => moveRow(prev, i, i + 1))} />
                         )}
-                        {/* Auto meal label "Bữa N:" — follows row position on reorder */}
-                        <span style={{ fontWeight: 700, color: "#eb0915", whiteSpace: "nowrap", flexShrink: 0 }}>Bữa {i + 1}:</span>
+                        {/* Auto meal label "Bữa N:" — click to rename; override persists & moves on reorder */}
+                        <span style={{ fontWeight: 700, color: "#eb0915", whiteSpace: "nowrap", flexShrink: 0 }}>
+                          <span
+                            contentEditable={editable}
+                            suppressContentEditableWarning
+                            title={editable ? "Nhấn để sửa tên bữa" : undefined}
+                            onBlur={editable ? (e) => {
+                              const txt = e.currentTarget.textContent?.trim() ?? "";
+                              setLocalManualFoods(prev => prev.map(f =>
+                                f.id === food.id ? { ...f, label: txt || undefined } : f
+                              ));
+                            } : undefined}
+                            style={{ outline: "none", cursor: editable ? "text" : undefined }}
+                          >
+                            {food.label ?? `Bữa ${i + 1}`}
+                          </span>:
+                        </span>
                         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                           <FoodNameCell
                             richHtml={food.richHtml}
