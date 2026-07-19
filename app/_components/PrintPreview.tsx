@@ -495,7 +495,9 @@ export function PrintPreview({
               <div contentEditable={editable} suppressContentEditableWarning style={{ fontSize: "12px", fontWeight: 600, color: "#12100d", lineHeight: 1.6, outline: "none" }}>
                 {result.daysToGoal
                   ? `Cần ${result.daysToGoal} ngày · ${result.weeksToGoal} tuần · ${result.monthsToGoal} tháng để đạt mục tiêu.`
-                  : `Với mức thâm hụt này, khách có thể giảm khoảng ${result.weeklyLoss.toFixed(2)} kg trong 1 tuần.`
+                  : result.weightGoal === "gain"
+                    ? `Với mức thặng dư này, khách có thể tăng khoảng ${result.weeklyLoss.toFixed(2)} kg trong 1 tuần.`
+                    : `Với mức thâm hụt này, khách có thể giảm khoảng ${result.weeklyLoss.toFixed(2)} kg trong 1 tuần.`
                 }
               </div>
             </div>
@@ -510,7 +512,7 @@ export function PrintPreview({
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "12px 18px", borderRight: result.tdee > result.der ? "1px solid rgba(235,9,21,0.12)" : undefined, minWidth: "88px" }}>
-                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>Giảm / tuần</div>
+                <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "3px" }}>{result.weightGoal === "gain" ? "Tăng / tuần" : "Giảm / tuần"}</div>
                 <div style={{ fontSize: "22px", fontWeight: 900, color: "#eb0915", lineHeight: 1.1 }}>{result.weeklyLoss.toFixed(2)}</div>
                 <div style={{ fontSize: "10px", fontWeight: 700, color: "#eb0915" }}>kg</div>
               </div>

@@ -81,8 +81,14 @@ const suggestTemplates = [
 const GOAL_DESC: Record<string, string> = {
   lose: "Thực đơn thâm hụt calo — Mục tiêu Giảm cân (thâm hụt 1% trọng lượng/tuần)",
   fat_loss: "Thực đơn thâm hụt calo — Mục tiêu Giảm mỡ nâng cao (thâm hụt 0.5% trọng lượng/tuần)",
-  gain: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân (+500 kcal/ngày)",
+  gain: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân",
   maintain: "Thực đơn duy trì năng lượng — Mục tiêu Giữ vóc dáng",
+};
+
+const GAIN_SPEED_DESC: Record<string, string> = {
+  slow: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân (thặng dư 0,25% trọng lượng/tuần)",
+  medium: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân (thặng dư 0,5% trọng lượng/tuần)",
+  fast: "Thực đơn tăng năng lượng — Mục tiêu Tăng cân (thặng dư 1% trọng lượng/tuần)",
 };
 
 // ─── TrackingBar ──────────────────────────────────────────────────────────────
@@ -329,7 +335,11 @@ export default function MealPlanSection({
   };
 
   // Notice block state
-  const [noticeMethod, setNoticeMethod] = useState(() => GOAL_DESC[result.weightGoal] ?? "");
+  const [noticeMethod, setNoticeMethod] = useState(() =>
+    result.weightGoal === "gain"
+      ? (GAIN_SPEED_DESC[result.gainSpeed] ?? GOAL_DESC.gain)
+      : (GOAL_DESC[result.weightGoal] ?? "")
+  );
   const [noticeWater, setNoticeWater] = useState(() => {
     const ml = Math.round(result.weight * 40);
     return `Khuyến nghị uống tối thiểu ${ml.toLocaleString("vi-VN")}ml nước mỗi ngày (40ml/kg trọng lượng cơ thể)`;

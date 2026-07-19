@@ -11,6 +11,14 @@ type BmrFormula = "mifflin" | "harris" | "pyramid" | "katch";
 type ActivityLevel = "level1" | "level2" | "level3" | "level4";
 type WeightGoal = "lose" | "fat_loss" | "gain" | "maintain";
 type GoalInputMode = "target_weight" | "kg_to_lose";
+type GainSpeed = "slow" | "medium" | "fast";
+
+// Tốc độ tăng cân → % trọng lượng cơ thể tăng mỗi tuần
+const GAIN_SPEED_RATE: Record<GainSpeed, number> = {
+  slow: 0.0025,   // Chậm: 0,25%/tuần
+  medium: 0.005,  // Vừa: 0,5%/tuần
+  fast: 0.01,     // Nhanh: 1%/tuần
+};
 
 interface FormState {
   name: string;
@@ -25,6 +33,7 @@ interface FormState {
   weightGoal: WeightGoal;
   goalInputMode: GoalInputMode;
   goalInputValue: string;
+  gainSpeed: GainSpeed;
 }
 
 // Exported so AI-menu route (Bước 3) can import this type
@@ -39,6 +48,7 @@ export interface NutritionResult {
   bmrFormula: BmrFormula;
   activityLevel: ActivityLevel;
   weightGoal: WeightGoal;
+  gainSpeed: GainSpeed;
   bmr: number;
   tdee: number;
   der: number;
@@ -111,23 +121,28 @@ function calcTDEE(bmr: number, level: ActivityLevel): number {
 function calcDER(
   tdee: number,
   goal: WeightGoal,
-  weight: number
-): { der: number; weeklyLoss: number | null } {
+  weight: number,
+  gainSpeed: GainSpeed
+): { der: number; weeklyChange: number | null } {
   switch (goal) {
     case "lose": {
-      const weeklyLoss = weight * 0.01;
-      const dailyDeficit = (weeklyLoss * 7700) / 7;
-      return { der: tdee - dailyDeficit, weeklyLoss };
+      const weeklyChange = weight * 0.01;
+      const dailyDeficit = (weeklyChange * 7700) / 7;
+      return { der: tdee - dailyDeficit, weeklyChange };
     }
     case "fat_loss": {
-      const weeklyLoss = weight * 0.005;
-      const dailyDeficit = (weeklyLoss * 7700) / 7;
-      return { der: tdee - dailyDeficit, weeklyLoss };
+      const weeklyChange = weight * 0.005;
+      const dailyDeficit = (weeklyChange * 7700) / 7;
+      return { der: tdee - dailyDeficit, weeklyChange };
     }
-    case "gain":
-      return { der: tdee + 500, weeklyLoss: null };
+    case "gain": {
+      // Muốn tăng 1kg cần nạp thêm 7700 kcal → quy đổi ra thặng dư mỗi ngày
+      const weeklyChange = weight * GAIN_SPEED_RATE[gainSpeed];
+      const dailySurplus = (weeklyChange * 7700) / 7;
+      return { der: tdee + dailySurplus, weeklyChange };
+    }
     case "maintain":
-      return { der: tdee, weeklyLoss: null };
+      return { der: tdee, weeklyChange: null };
   }
 }
 
@@ -281,6 +296,7 @@ const INITIAL_FORM: FormState = {
   weightGoal: "lose",
   goalInputMode: "kg_to_lose",
   goalInputValue: "",
+  gainSpeed: "medium",
 };
 
 // Priority: Sat → Sun → Fri → Mon → Tue → Wed → Thu
@@ -360,6 +376,10 @@ export default function DietForm({ userName }: { userName: string }) {
 
   function setGoalMode(mode: GoalInputMode) {
     setForm((prev) => ({ ...prev, goalInputMode: mode, goalInputValue: "" }));
+  }
+
+  function setGainSpeed(speed: GainSpeed) {
+    setForm((prev) => ({ ...prev, gainSpeed: speed }));
   }
 
   function handleDerPctChange(newPct: number) {
@@ -521,7 +541,7 @@ export default function DietForm({ userName }: { userName: string }) {
     const a = parseInt(form.age, 10);
     const bmr = calcBMR(form.bmrFormula, form.gender, w, h, a, effectiveBF ?? undefined);
     const tdee = calcTDEE(bmr, form.activityLevel);
-    const { der, weeklyLoss } = calcDER(tdee, form.weightGoal, w);
+    const { der, weeklyChange } = calcDER(tdee, form.weightGoal, w, form.gainSpeed);
     const { protein, fat, carbs } = calcMacros(h, der);
     const roadmap = form.weightGoal === "lose"
       ? computeRoadmap(w, form.goalInputMode, form.goalInputValue)
@@ -538,13 +558,14 @@ export default function DietForm({ userName }: { userName: string }) {
       bmrFormula: form.bmrFormula,
       activityLevel: form.activityLevel,
       weightGoal: form.weightGoal,
+      gainSpeed: form.gainSpeed,
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
       der: Math.round(der),
       protein: Math.round(protein),
       fat,
       carbs: Math.round(carbs),
-      weeklyLoss,
+      weeklyLoss: weeklyChange,
       totalToLose: roadmap?.totalToLose ?? null,
       weeksToGoal: roadmap?.weeksToGoal ?? null,
       daysToGoal: roadmap?.daysToGoal ?? null,
@@ -1161,6 +1182,44 @@ export default function DietForm({ userName }: { userName: string }) {
                 </div>
               )}
 
+              {/* ── Gain speed selector — only when "gain" ── */}
+              {form.weightGoal === "gain" && (
+                <div className="sm:col-span-2">
+                  <p className="dp-label">Tốc độ tăng cân</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { speed: "slow" as GainSpeed, label: "Chậm", sub: "0,25%/tuần" },
+                      { speed: "medium" as GainSpeed, label: "Vừa", sub: "0,5%/tuần" },
+                      { speed: "fast" as GainSpeed, label: "Nhanh", sub: "1%/tuần" },
+                    ]).map(({ speed, label, sub }) => {
+                      const active = form.gainSpeed === speed;
+                      return (
+                        <button
+                          key={speed}
+                          type="button"
+                          onClick={() => setGainSpeed(speed)}
+                          className="py-2.5 rounded-xl text-sm font-semibold transition-all flex flex-col items-center leading-tight"
+                          style={{
+                            border: active ? "1px solid #eb0915" : "1px solid rgba(18,16,13,0.15)",
+                            background: active ? "rgba(235,9,21,0.08)" : "#ffffff",
+                            color: active ? "#eb0915" : "rgba(18,16,13,0.65)",
+                          }}
+                        >
+                          <span>{label}</span>
+                          <span className="text-xs font-normal mt-0.5"
+                            style={{ color: active ? "rgba(235,9,21,0.7)" : "rgba(18,16,13,0.4)" }}>
+                            {sub}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs" style={{ color: "rgba(18,16,13,0.4)" }}>
+                    Quy đổi theo % trọng lượng cơ thể/tuần và mức 7.700 kcal cho mỗi kg tăng thêm.
+                  </p>
+                </div>
+              )}
+
             </div>
           </section>
 
@@ -1666,7 +1725,9 @@ export default function DietForm({ userName }: { userName: string }) {
                 }}
               >
                 <span className="font-semibold" style={{ color: "#eb0915" }}>Dự kiến:</span>{" "}
-                Với mức thâm hụt này, khách có thể giảm khoảng{" "}
+                {result.weightGoal === "gain"
+                  ? "Với mức thặng dư này, khách có thể tăng khoảng "
+                  : "Với mức thâm hụt này, khách có thể giảm khoảng "}
                 <span className="font-bold" style={{ color: "#eb0915" }}>
                   {result.weeklyLoss.toFixed(2)} kg
                 </span>{" "}
