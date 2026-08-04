@@ -1,0 +1,75 @@
+# Supabase free tier pause project sau 7 ngày không có truy vấn.
+#
+# Trước đây chỉ dựa vào Vercel Cron -> khi cron không chạy thì KHÔNG AI BIẾT,
+# im lặng 7 ngày là DB bị pause. Workflow này là lớp thứ hai, chạy trên hạ tầng
+# GitHub (độc lập hoàn toàn với Vercel) và quan trọng nhất: nếu ping hỏng thì
+# job FAIL -> GitHub gửi email báo ngay, không im lặng nữa.
+#
+# LƯU Ý: GitHub tự tắt scheduled workflow nếu repo không có commit nào trong
+# 60 ngày. Nếu app "đứng yên" lâu, vào tab Actions bấm "Enable workflow" lại,
+# hoặc chạy tay bằng nút "Run workflow".
+name: keepalive
+
+on:
+  schedule:
+    # 6 tiếng/lần (00:00, 06:00, 12:00, 18:00 UTC). Chạy dày để lỡ GitHub có
+    # bỏ vài lần (schedule của GitHub là best-effort) thì vẫn còn xa mốc 7 ngày.
+    - cron: "0 */6 * * *"
+  workflow_dispatch: # cho phép bấm chạy tay để kiểm tra
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping /api/keepalive (thử lại tối đa 5 lần)
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://coach-dong.vercel.app' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          auth=()
+          if [ -n "${CRON_SECRET:-}" ]; then
+            auth=(-H "Authorization: Bearer ${CRON_SECRET}")
+          fi
+
+          for i in 1 2 3 4 5; do
+            echo "--- Lần thử $i"
+            code=$(curl -sS -o body.txt -w '%{http_code}' -m 60 \
+              "${auth[@]}" "${APP_URL}/api/keepalive" || echo 000)
+            echo "HTTP $code"
+            cat body.txt; echo
+
+            if [ "$code" = "200" ] && grep -q '"ok":true' body.txt; then
+              echo "Keep-alive OK — database vẫn sống."
+              exit 0
+            fi
+
+            # Supabase vừa bị pause thì lần đầu thường timeout/500; nghỉ rồi thử lại.
+            [ "$i" -lt 5 ] && sleep 30
+          done
+
+          echo "::error::Keep-alive THẤT BẠI sau 5 lần thử. Database có thể đã bị pause — vào Supabase dashboard bấm Restore."
+          exit 1
+
+      - name: Ping thẳng Supabase REST API (nếu đã cấu hình secret)
+        # Lớp bảo hiểm: gọi thẳng API của Supabase, không đi qua Vercel.
+        # Chỉ chạy nếu đã thêm secret SUPABASE_URL + SUPABASE_ANON_KEY.
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "Chưa đặt SUPABASE_URL / SUPABASE_ANON_KEY — bỏ qua bước này."
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -m 60 \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            "${SUPABASE_URL}/rest/v1/" || echo 000)
+          echo "Supabase REST HTTP $code"
